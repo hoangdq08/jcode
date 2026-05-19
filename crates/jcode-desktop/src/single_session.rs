@@ -157,6 +157,23 @@ pub(crate) struct SelectionLineSegment {
 pub(crate) struct SingleSessionStyledLine {
     pub(crate) text: String,
     pub(crate) style: SingleSessionLineStyle,
+    pub(crate) inline_spans: Vec<SingleSessionInlineSpan>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub(crate) struct SingleSessionInlineSpan {
+    pub(crate) start: usize,
+    pub(crate) end: usize,
+    pub(crate) kind: SingleSessionInlineSpanKind,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub(crate) enum SingleSessionInlineSpanKind {
+    Code,
+    Math,
+    Strong,
+    Emphasis,
+    Strike,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -233,10 +250,23 @@ pub(crate) enum SingleSessionLineStyle {
 }
 
 impl SingleSessionStyledLine {
-    fn new(text: impl Into<String>, style: SingleSessionLineStyle) -> Self {
+    pub(crate) fn new(text: impl Into<String>, style: SingleSessionLineStyle) -> Self {
         Self {
             text: text.into(),
             style,
+            inline_spans: Vec::new(),
+        }
+    }
+
+    pub(crate) fn with_inline_spans(
+        text: impl Into<String>,
+        style: SingleSessionLineStyle,
+        inline_spans: Vec<SingleSessionInlineSpan>,
+    ) -> Self {
+        Self {
+            text: text.into(),
+            style,
+            inline_spans,
         }
     }
 }
@@ -3505,6 +3535,27 @@ fn append_streaming_assistant_lines(lines: &mut Vec<SingleSessionStyledLine>, co
     lines.extend(render_assistant_markdown_lines(content));
 }
 
+fn take_current_inline_spans(
+    inline_spans: &mut Vec<SingleSessionInlineSpan>,
+    trimmed_len: usize,
+) -> Vec<SingleSessionInlineSpan> {
+    let mut spans = std::mem::take(inline_spans);
+    spans = spans
+        .into_iter()
+        .filter_map(|span| {
+            let start = span.start.min(trimmed_len);
+            let end = span.end.min(trimmed_len);
+            (start < end).then_some(SingleSessionInlineSpan {
+                start,
+                end,
+                kind: span.kind,
+            })
+        })
+        .collect();
+    spans.sort_by_key(|span| (span.start, span.end));
+    spans
+}
+
 fn render_assistant_markdown_lines(content: &str) -> Vec<SingleSessionStyledLine> {
     let markdown_options = Options::ENABLE_TABLES
         | Options::ENABLE_STRIKETHROUGH
@@ -3534,6 +3585,8 @@ fn render_assistant_markdown_lines(content: &str) -> Vec<SingleSessionStyledLine
 struct AssistantMarkdownRenderer {
     lines: Vec<SingleSessionStyledLine>,
     current: String,
+    current_inline_spans: Vec<SingleSessionInlineSpan>,
+    active_inline_spans: Vec<AssistantMarkdownActiveInlineSpan>,
     current_style: SingleSessionLineStyle,
     line_style_override: Option<SingleSessionLineStyle>,
     quote_depth: usize,
@@ -3546,6 +3599,12 @@ struct AssistantMarkdownRenderer {
     table: Option<AssistantMarkdownTable>,
     image_stack: Vec<AssistantMarkdownImage>,
     link_stack: Vec<AssistantMarkdownLink>,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct AssistantMarkdownActiveInlineSpan {
+    kind: SingleSessionInlineSpanKind,
+    start: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -3618,12 +3677,22 @@ impl AssistantMarkdownRenderer {
             Event::End(TagEnd::Link) => self.end_link(),
             Event::Start(Tag::Image { dest_url, .. }) => self.start_image(dest_url.as_ref()),
             Event::End(TagEnd::Image) => self.end_image(),
-            Event::Start(Tag::Emphasis) => self.push_inline_marker("*"),
-            Event::End(TagEnd::Emphasis) => self.push_inline_marker("*"),
-            Event::Start(Tag::Strong) => self.push_inline_marker("**"),
-            Event::End(TagEnd::Strong) => self.push_inline_marker("**"),
-            Event::Start(Tag::Strikethrough) => self.push_inline_marker("~~"),
-            Event::End(TagEnd::Strikethrough) => self.push_inline_marker("~~"),
+            Event::Start(Tag::Emphasis) => {
+                self.start_inline_span(SingleSessionInlineSpanKind::Emphasis)
+            }
+            Event::End(TagEnd::Emphasis) => {
+                self.end_inline_span(SingleSessionInlineSpanKind::Emphasis)
+            }
+            Event::Start(Tag::Strong) => {
+                self.start_inline_span(SingleSessionInlineSpanKind::Strong)
+            }
+            Event::End(TagEnd::Strong) => self.end_inline_span(SingleSessionInlineSpanKind::Strong),
+            Event::Start(Tag::Strikethrough) => {
+                self.start_inline_span(SingleSessionInlineSpanKind::Strike)
+            }
+            Event::End(TagEnd::Strikethrough) => {
+                self.end_inline_span(SingleSessionInlineSpanKind::Strike)
+            }
             Event::Text(text) => self.push_text(text.as_ref()),
             Event::Code(code) => self.push_inline_code(code.as_ref()),
             Event::InlineMath(math) => self.push_inline_math(math.as_ref()),
@@ -3950,53 +4019,71 @@ impl AssistantMarkdownRenderer {
 
     fn push_inline_code(&mut self, code: &str) {
         if let Some(image) = self.image_stack.last_mut() {
-            image.alt_text.push('`');
             image.alt_text.push_str(code);
-            image.alt_text.push('`');
             return;
         }
         if let Some(table) = &mut self.table {
-            table.push_text("`");
             table.push_text(code);
-            table.push_text("`");
             return;
         }
         self.begin_line_if_needed();
-        self.current.push('`');
+        let start = self.current.len();
         self.current.push_str(code);
-        self.current.push('`');
-    }
-
-    fn push_inline_marker(&mut self, marker: &str) {
-        if let Some(image) = self.image_stack.last_mut() {
-            image.alt_text.push_str(marker);
-            return;
-        }
-        if let Some(table) = &mut self.table {
-            table.push_text(marker);
-            return;
-        }
-        self.begin_line_if_needed();
-        self.current.push_str(marker);
+        self.push_current_inline_span(start, self.current.len(), SingleSessionInlineSpanKind::Code);
     }
 
     fn push_inline_math(&mut self, math: &str) {
         if let Some(image) = self.image_stack.last_mut() {
-            image.alt_text.push('$');
             image.alt_text.push_str(math);
-            image.alt_text.push('$');
             return;
         }
         if let Some(table) = &mut self.table {
-            table.push_text("$");
             table.push_text(math);
-            table.push_text("$");
             return;
         }
         self.begin_line_if_needed();
-        self.current.push('$');
+        let start = self.current.len();
         self.current.push_str(math);
-        self.current.push('$');
+        self.push_current_inline_span(start, self.current.len(), SingleSessionInlineSpanKind::Math);
+    }
+
+    fn start_inline_span(&mut self, kind: SingleSessionInlineSpanKind) {
+        if self.image_stack.last_mut().is_some() || self.table.is_some() {
+            return;
+        }
+        self.begin_line_if_needed();
+        self.active_inline_spans
+            .push(AssistantMarkdownActiveInlineSpan {
+                kind,
+                start: self.current.len(),
+            });
+    }
+
+    fn end_inline_span(&mut self, kind: SingleSessionInlineSpanKind) {
+        if self.image_stack.last_mut().is_some() || self.table.is_some() {
+            return;
+        }
+        let Some(index) = self
+            .active_inline_spans
+            .iter()
+            .rposition(|span| span.kind == kind)
+        else {
+            return;
+        };
+        let active = self.active_inline_spans.remove(index);
+        self.push_current_inline_span(active.start, self.current.len(), kind);
+    }
+
+    fn push_current_inline_span(
+        &mut self,
+        start: usize,
+        end: usize,
+        kind: SingleSessionInlineSpanKind,
+    ) {
+        if start < end {
+            self.current_inline_spans
+                .push(SingleSessionInlineSpan { start, end, kind });
+        }
     }
 
     fn push_display_math(&mut self, math: &str) {
@@ -4096,10 +4183,19 @@ impl AssistantMarkdownRenderer {
         if !self.pending_line_prefix.is_empty() {
             self.current.push_str(&self.pending_line_prefix);
             self.pending_line_prefix.clear();
+            self.reset_active_inline_span_starts();
             return;
         }
         if self.quote_depth > 0 {
             self.current.push_str(&self.quote_prefix());
+            self.reset_active_inline_span_starts();
+        }
+    }
+
+    fn reset_active_inline_span_starts(&mut self) {
+        let start = self.current.len();
+        for span in &mut self.active_inline_spans {
+            span.start = start;
         }
     }
 
@@ -4135,9 +4231,19 @@ impl AssistantMarkdownRenderer {
     fn flush_current_line_as(&mut self, style: SingleSessionLineStyle) {
         let trimmed = self.current.trim_end();
         if !trimmed.is_empty() {
-            self.lines.push(styled_line(trimmed, style));
+            let trimmed_len = trimmed.len();
+            let inline_spans =
+                take_current_inline_spans(&mut self.current_inline_spans, trimmed_len);
+            self.lines.push(SingleSessionStyledLine::with_inline_spans(
+                trimmed,
+                style,
+                inline_spans,
+            ));
+        } else {
+            self.current_inline_spans.clear();
         }
         self.current.clear();
+        self.active_inline_spans.clear();
         self.line_style_override = None;
     }
 

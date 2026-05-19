@@ -1,5 +1,8 @@
 use super::*;
-use crate::single_session::{MODEL_PICKER_INLINE_ROW_LIMIT, SingleSessionTypography};
+use crate::single_session::{
+    MODEL_PICKER_INLINE_ROW_LIMIT, SingleSessionInlineSpan, SingleSessionInlineSpanKind,
+    SingleSessionTypography,
+};
 
 pub(crate) const INLINE_MATH_BACKGROUND_COLOR: [f32; 4] = [0.035, 0.220, 0.155, 0.115];
 pub(crate) const MARKDOWN_HEADING_BACKGROUND_COLOR: [f32; 4] = [0.060, 0.180, 0.520, 0.055];
@@ -4348,7 +4351,7 @@ fn push_single_session_inline_code_cards_from_viewport(
             continue;
         }
         let line_y = body_top + viewport.top_offset_pixels + line_index as f32 * line_height;
-        let code_runs = single_session_inline_code_runs(&line.text);
+        let code_runs = single_session_inline_code_runs_for_line(line);
         for run in &code_runs {
             let x =
                 PANEL_TITLE_LEFT_PADDING + run.start_column as f32 * char_width - horizontal_pad;
@@ -4368,7 +4371,7 @@ fn push_single_session_inline_code_cards_from_viewport(
             };
             push_rounded_rect(vertices, rect, radius, INLINE_CODE_BACKGROUND_COLOR, size);
         }
-        for run in single_session_inline_math_runs(&line.text) {
+        for run in single_session_inline_math_runs_for_line(line) {
             if code_runs.iter().any(|code_run| {
                 inline_markdown_runs_overlap(
                     run.start_column,
@@ -4432,6 +4435,19 @@ pub(crate) fn single_session_inline_code_runs(text: &str) -> Vec<SingleSessionIn
     runs
 }
 
+pub(crate) fn single_session_inline_code_runs_for_line(
+    line: &SingleSessionStyledLine,
+) -> Vec<SingleSessionInlineCodeRun> {
+    if line.inline_spans.is_empty() {
+        return single_session_inline_code_runs(&line.text);
+    }
+    line.inline_spans
+        .iter()
+        .filter(|span| span.kind == SingleSessionInlineSpanKind::Code)
+        .filter_map(|span| inline_code_run_from_span(&line.text, span))
+        .collect()
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct SingleSessionInlineMathRun {
     pub(crate) start_column: usize,
@@ -4477,6 +4493,54 @@ pub(crate) fn single_session_inline_math_runs(text: &str) -> Vec<SingleSessionIn
     }
 
     runs
+}
+
+pub(crate) fn single_session_inline_math_runs_for_line(
+    line: &SingleSessionStyledLine,
+) -> Vec<SingleSessionInlineMathRun> {
+    if line.inline_spans.is_empty() {
+        return single_session_inline_math_runs(&line.text);
+    }
+    line.inline_spans
+        .iter()
+        .filter(|span| span.kind == SingleSessionInlineSpanKind::Math)
+        .filter_map(|span| inline_math_run_from_span(&line.text, span))
+        .collect()
+}
+
+fn inline_code_run_from_span(
+    text: &str,
+    span: &SingleSessionInlineSpan,
+) -> Option<SingleSessionInlineCodeRun> {
+    let (start_column, column_count) = inline_run_columns_from_span(text, span)?;
+    (column_count > 0).then_some(SingleSessionInlineCodeRun {
+        start_column,
+        column_count,
+    })
+}
+
+fn inline_math_run_from_span(
+    text: &str,
+    span: &SingleSessionInlineSpan,
+) -> Option<SingleSessionInlineMathRun> {
+    let (start_column, column_count) = inline_run_columns_from_span(text, span)?;
+    (column_count > 0).then_some(SingleSessionInlineMathRun {
+        start_column,
+        column_count,
+    })
+}
+
+fn inline_run_columns_from_span(
+    text: &str,
+    span: &SingleSessionInlineSpan,
+) -> Option<(usize, usize)> {
+    if span.start >= span.end || span.end > text.len() {
+        return None;
+    }
+    let content = text.get(span.start..span.end)?;
+    let start_column = text.get(..span.start)?.chars().count();
+    let column_count = content.chars().count();
+    Some((start_column, column_count))
 }
 
 fn single_session_inline_code_byte_ranges(text: &str) -> Vec<(usize, usize)> {
@@ -5579,10 +5643,7 @@ pub(crate) fn single_session_streaming_response_rendered_body_line_count(
 }
 
 fn blank_render_line() -> SingleSessionStyledLine {
-    SingleSessionStyledLine {
-        text: String::new(),
-        style: SingleSessionLineStyle::Blank,
-    }
+    SingleSessionStyledLine::new(String::new(), SingleSessionLineStyle::Blank)
 }
 
 fn single_session_wrapped_body_lines(
@@ -5600,11 +5661,15 @@ fn single_session_wrapped_body_lines(
             wrapped.push(line);
             continue;
         }
-        for text in wrap_body_line_text(&line.text, max_columns) {
-            wrapped.push(SingleSessionStyledLine {
+        let style = line.style;
+        for (text, inline_spans) in
+            wrap_body_line_text_with_spans(&line.text, &line.inline_spans, max_columns)
+        {
+            wrapped.push(SingleSessionStyledLine::with_inline_spans(
                 text,
-                style: line.style,
-            });
+                style,
+                inline_spans,
+            ));
         }
     }
 
@@ -5618,20 +5683,58 @@ fn single_session_body_max_columns(size: PhysicalSize<u32>, text_scale: f32) -> 
         .max(20.0) as usize
 }
 
-fn wrap_body_line_text(text: &str, max_columns: usize) -> Vec<String> {
+fn wrap_body_line_text_with_spans(
+    text: &str,
+    inline_spans: &[SingleSessionInlineSpan],
+    max_columns: usize,
+) -> Vec<(String, Vec<SingleSessionInlineSpan>)> {
     let max_columns = max_columns.max(1);
     let mut remaining = text.trim_end();
     let mut lines = Vec::new();
+    let mut base_byte = 0usize;
 
     while text_exceeds_columns(remaining, max_columns) {
         let split = word_wrap_split_index(remaining, max_columns);
         let (line, rest) = remaining.split_at(split);
-        lines.push(line.trim_end().to_string());
-        remaining = rest.trim_start();
+        let line = line.trim_end();
+        let start = base_byte;
+        let end = start + line.len();
+        lines.push((
+            line.to_string(),
+            inline_spans_for_wrapped_range(inline_spans, start, end),
+        ));
+
+        let trimmed_rest = rest.trim_start();
+        base_byte += split + rest.len().saturating_sub(trimmed_rest.len());
+        remaining = trimmed_rest;
     }
 
-    lines.push(remaining.to_string());
+    let start = base_byte;
+    let end = start + remaining.len();
+    lines.push((
+        remaining.to_string(),
+        inline_spans_for_wrapped_range(inline_spans, start, end),
+    ));
     lines
+}
+
+fn inline_spans_for_wrapped_range(
+    inline_spans: &[SingleSessionInlineSpan],
+    start: usize,
+    end: usize,
+) -> Vec<SingleSessionInlineSpan> {
+    inline_spans
+        .iter()
+        .filter_map(|span| {
+            let span_start = span.start.max(start);
+            let span_end = span.end.min(end);
+            (span_start < span_end).then_some(SingleSessionInlineSpan {
+                start: span_start - start,
+                end: span_end - start,
+                kind: span.kind,
+            })
+        })
+        .collect()
 }
 
 fn text_exceeds_columns(text: &str, max_columns: usize) -> bool {
@@ -5906,9 +6009,9 @@ pub(crate) fn single_session_styled_text_segments(
                 push_tool_line_segments(&mut segments, &line.text);
             } else if push_assistant_markdown_inline_segments(&mut segments, line) {
                 // Markdown prose can mix display fonts with inline code/math, emphasis,
-                // strong text, strike-through markers, and task/list markers. Segmenting
-                // here keeps the source-visible markdown delimiters while giving each
-                // semantic run a distinct font, weight, style, or color.
+                // strong text, strike-through spans, and task/list markers. Segmenting
+                // here keeps rendered text clean while giving each semantic run a
+                // distinct font, weight, style, or color.
             } else {
                 segments.push((
                     line.text.as_str(),
@@ -5996,200 +6099,100 @@ fn push_assistant_markdown_inline_range<'a>(
     if start >= end {
         return false;
     }
-    let mut search_start = start;
-    let mut emitted_any_span = false;
-    while let Some(span) = next_assistant_inline_markdown_span(&line.text, search_start, end) {
-        if span.open > search_start {
-            let text = &line.text[search_start..span.open];
-            segments.push((text, single_session_style_attrs_for_text(line.style, text)));
-        }
 
-        let open_marker = &line.text[span.open..span.content_start];
-        segments.push((
-            open_marker,
-            assistant_inline_markdown_marker_attrs(line.style, open_marker, span.kind),
-        ));
-        if span.close > span.content_start {
-            let content = &line.text[span.content_start..span.close];
-            segments.push((
-                content,
-                assistant_inline_markdown_content_attrs(line.style, content, span.kind),
-            ));
-        }
-        let close_marker = &line.text[span.close..span.after_close];
-        segments.push((
-            close_marker,
-            assistant_inline_markdown_marker_attrs(line.style, close_marker, span.kind),
-        ));
-        search_start = span.after_close;
-        emitted_any_span = true;
-    }
-
-    if !emitted_any_span && require_semantic_span {
+    let inline_spans = clipped_inline_spans_for_range(&line.inline_spans, start, end);
+    if inline_spans.is_empty() && require_semantic_span {
         return false;
     }
-    if search_start < end {
-        let text = &line.text[search_start..end];
+
+    if inline_spans.is_empty() {
+        let text = &line.text[start..end];
         segments.push((text, single_session_style_attrs_for_text(line.style, text)));
+        return true;
+    }
+
+    let mut boundaries = Vec::with_capacity(inline_spans.len().saturating_mul(2) + 2);
+    boundaries.push(start);
+    boundaries.push(end);
+    for span in &inline_spans {
+        boundaries.push(span.start);
+        boundaries.push(span.end);
+    }
+    boundaries.sort_unstable();
+    boundaries.dedup();
+
+    for window in boundaries.windows(2) {
+        let segment_start = window[0];
+        let segment_end = window[1];
+        if segment_start >= segment_end {
+            continue;
+        }
+        let text = &line.text[segment_start..segment_end];
+        let active_kinds =
+            active_inline_span_kinds_for_range(&inline_spans, segment_start, segment_end);
+        segments.push((
+            text,
+            assistant_inline_markdown_run_attrs(line.style, text, &active_kinds),
+        ));
     }
     true
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum AssistantInlineMarkdownKind {
-    Code,
-    Math,
-    Strong,
-    Emphasis,
-    Strike,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct AssistantInlineMarkdownSpan {
-    open: usize,
-    content_start: usize,
-    close: usize,
-    after_close: usize,
-    kind: AssistantInlineMarkdownKind,
-}
-
-fn next_assistant_inline_markdown_span(
-    text: &str,
+fn clipped_inline_spans_for_range(
+    inline_spans: &[SingleSessionInlineSpan],
     start: usize,
     end: usize,
-) -> Option<AssistantInlineMarkdownSpan> {
-    let candidates = [
-        find_assistant_inline_markdown_span(
-            text,
-            start,
-            end,
-            "`",
-            AssistantInlineMarkdownKind::Code,
-        ),
-        find_assistant_inline_markdown_span(
-            text,
-            start,
-            end,
-            "$",
-            AssistantInlineMarkdownKind::Math,
-        ),
-        find_assistant_inline_markdown_span(
-            text,
-            start,
-            end,
-            "**",
-            AssistantInlineMarkdownKind::Strong,
-        ),
-        find_assistant_inline_markdown_span(
-            text,
-            start,
-            end,
-            "~~",
-            AssistantInlineMarkdownKind::Strike,
-        ),
-        find_assistant_inline_markdown_span(
-            text,
-            start,
-            end,
-            "*",
-            AssistantInlineMarkdownKind::Emphasis,
-        ),
-    ];
-    candidates
-        .into_iter()
-        .flatten()
-        .enumerate()
-        .min_by_key(|(priority, span)| (span.open, *priority))
-        .map(|(_, span)| span)
+) -> Vec<SingleSessionInlineSpan> {
+    inline_spans
+        .iter()
+        .filter_map(|span| {
+            let span_start = span.start.max(start);
+            let span_end = span.end.min(end);
+            (span_start < span_end).then_some(SingleSessionInlineSpan {
+                start: span_start,
+                end: span_end,
+                kind: span.kind,
+            })
+        })
+        .collect()
 }
 
-fn find_assistant_inline_markdown_span(
-    text: &str,
+fn active_inline_span_kinds_for_range(
+    inline_spans: &[SingleSessionInlineSpan],
     start: usize,
     end: usize,
-    delimiter: &str,
-    kind: AssistantInlineMarkdownKind,
-) -> Option<AssistantInlineMarkdownSpan> {
-    let mut search_start = start;
-    while search_start < end {
-        let open_rel = text[search_start..end].find(delimiter)?;
-        let open = search_start + open_rel;
-        if delimiter == "*" && text[open..end].starts_with("**") {
-            search_start = open + delimiter.len();
-            continue;
-        }
-        if delimiter == "$" && text[open..end].starts_with("$$") {
-            search_start = open + delimiter.len();
-            continue;
-        }
-        let content_start = open + delimiter.len();
-        let mut close_search_start = content_start;
-        while close_search_start < end {
-            let Some(close_rel) = text[close_search_start..end].find(delimiter) else {
-                break;
-            };
-            let close = close_search_start + close_rel;
-            if close == content_start {
-                close_search_start = close + delimiter.len();
-                continue;
-            }
-            if delimiter == "*" && text[close..end].starts_with("**") {
-                close_search_start = close + delimiter.len();
-                continue;
-            }
-            if delimiter == "$" && text[close..end].starts_with("$$") {
-                close_search_start = close + delimiter.len();
-                continue;
-            }
-            return Some(AssistantInlineMarkdownSpan {
-                open,
-                content_start,
-                close,
-                after_close: close + delimiter.len(),
-                kind,
-            });
-        }
-        search_start = content_start;
-    }
-    None
+) -> Vec<SingleSessionInlineSpanKind> {
+    inline_spans
+        .iter()
+        .filter_map(|span| (span.start <= start && end <= span.end).then_some(span.kind))
+        .collect()
 }
 
-fn assistant_inline_markdown_marker_attrs(
+fn assistant_inline_markdown_run_attrs(
     style: SingleSessionLineStyle,
     text: &str,
-    kind: AssistantInlineMarkdownKind,
+    kinds: &[SingleSessionInlineSpanKind],
 ) -> Attrs<'static> {
-    match kind {
-        AssistantInlineMarkdownKind::Code | AssistantInlineMarkdownKind::Math => {
-            single_session_style_attrs(SingleSessionLineStyle::Code)
-        }
-        AssistantInlineMarkdownKind::Strong
-        | AssistantInlineMarkdownKind::Emphasis
-        | AssistantInlineMarkdownKind::Strike => {
-            single_session_inline_color_attrs_for_text(style, text, META_TEXT_COLOR)
-        }
+    if kinds.iter().any(|kind| {
+        matches!(
+            kind,
+            SingleSessionInlineSpanKind::Code | SingleSessionInlineSpanKind::Math
+        )
+    }) {
+        return single_session_style_attrs(SingleSessionLineStyle::Code);
     }
-}
 
-fn assistant_inline_markdown_content_attrs(
-    style: SingleSessionLineStyle,
-    text: &str,
-    kind: AssistantInlineMarkdownKind,
-) -> Attrs<'static> {
-    match kind {
-        AssistantInlineMarkdownKind::Code | AssistantInlineMarkdownKind::Math => {
-            single_session_style_attrs(SingleSessionLineStyle::Code)
-        }
-        AssistantInlineMarkdownKind::Strong => {
-            single_session_style_attrs_for_text(style, text).weight(glyphon::Weight::BOLD)
-        }
-        AssistantInlineMarkdownKind::Emphasis => {
-            single_session_style_attrs_for_text(style, text).style(glyphon::Style::Italic)
-        }
-        AssistantInlineMarkdownKind::Strike => {
-            single_session_inline_color_attrs_for_text(style, text, MARKDOWN_STRIKE_TEXT_COLOR)
-        }
+    let mut attrs = single_session_style_attrs_for_text(style, text);
+    if kinds.contains(&SingleSessionInlineSpanKind::Strike) {
+        attrs = attrs.color(text_color(MARKDOWN_STRIKE_TEXT_COLOR));
     }
+    if kinds.contains(&SingleSessionInlineSpanKind::Strong) {
+        attrs = attrs.weight(glyphon::Weight::BOLD);
+    }
+    if kinds.contains(&SingleSessionInlineSpanKind::Emphasis) {
+        attrs = attrs.style(glyphon::Style::Italic);
+    }
+    attrs
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

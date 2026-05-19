@@ -292,7 +292,11 @@ async fn run() -> Result<()> {
         return Ok(());
     }
     if args.iter().any(|arg| arg == "--version" || arg == "-V") {
-        println!("{}", desktop_header_version_label());
+        println!(
+            "{} {}",
+            desktop_header_version_label(),
+            desktop_build_hash_label()
+        );
         return Ok(());
     }
     if let Some(message) = headless_chat_smoke_message(&args) {

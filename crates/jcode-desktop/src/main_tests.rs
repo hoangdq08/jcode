@@ -695,7 +695,7 @@ fn single_session_assistant_markdown_is_prepared_for_desktop_rendering() {
     assert!(body.contains("Plan"));
     assert!(body.contains("• first"));
     assert!(body.contains("• second"));
-    assert!(body.contains("Use `cargo test`."));
+    assert!(body.contains("Use cargo test."));
     assert!(body.contains("  rust"));
     assert!(body.contains("  fn main() {}"));
     assert!(!body.contains("```"));
@@ -727,9 +727,9 @@ fn single_session_markdown_renderer_handles_rich_commonmark_shapes() {
     );
     assert!(body.contains("1. first"));
     assert!(body.contains("2. second"));
-    assert!(body.contains("docs ↗ https://example.com and **bold** plus *em*."));
+    assert!(body.contains("docs ↗ https://example.com and bold plus em."));
     assert_eq!(
-        style_for_text(&lines, "docs ↗ https://example.com and **bold** plus *em*."),
+        style_for_text(&lines, "docs ↗ https://example.com and bold plus em."),
         Some(SingleSessionLineStyle::AssistantLink)
     );
     assert!(body.contains("name  │ value"));
@@ -756,7 +756,7 @@ fn single_session_markdown_renderer_preserves_media_html_and_table_alignment() {
         .collect::<Vec<_>>()
         .join("\n");
 
-    assert!(body.contains("Text **strong** and *em* and ~~old~~ with `<kbd>`Esc`</kbd>`."));
+    assert!(body.contains("Text strong and em and old with <kbd>Esc</kbd>."));
     assert!(body.contains("🖼 diagram ↗ https://example.com/diagram.png"));
     assert_eq!(
         style_for_text(&lines, "🖼 diagram ↗ https://example.com/diagram.png"),
@@ -843,7 +843,7 @@ fn single_session_markdown_renderer_handles_extended_gfm_structures() {
         style_for_text(&lines, "WARNING │ pay attention"),
         Some(SingleSessionLineStyle::AssistantQuote)
     );
-    assert!(body.contains("Inline $x+y$."));
+    assert!(body.contains("Inline x+y."));
     assert!(body.contains("CLI --flag stays literal."));
     assert!(!body.contains("CLI –flag"));
     assert!(body.contains("  $$"));
@@ -954,8 +954,9 @@ fn single_session_markdown_vertices_draw_heading_rule_and_inline_math_affordance
         .expect("heading line should be present");
     let inline_line = body_lines
         .iter()
-        .position(|line| line.text == "Use `cargo` and $x+y$.")
+        .position(|line| line.text == "Use cargo and x+y.")
         .expect("inline markdown line should be present");
+    let inline_styled_line = &body_lines[inline_line];
     let rule_line = body_lines
         .iter()
         .position(|line| line.text == "────────────")
@@ -986,7 +987,7 @@ fn single_session_markdown_vertices_draw_heading_rule_and_inline_math_affordance
         "heading card",
     );
 
-    let code_run = single_session_inline_code_runs("Use `cargo` and $x+y$.")
+    let code_run = single_session_inline_code_runs_for_line(inline_styled_line)
         .into_iter()
         .next()
         .expect("code run should be detected");
@@ -1003,7 +1004,7 @@ fn single_session_markdown_vertices_draw_heading_rule_and_inline_math_affordance
         "inline code pill",
     );
 
-    let math_run = single_session_inline_math_runs("Use `cargo` and $x+y$.")
+    let math_run = single_session_inline_math_runs_for_line(inline_styled_line)
         .into_iter()
         .next()
         .expect("math run should be detected");
@@ -1549,6 +1550,7 @@ fn assistant_symbol_lines_use_main_font_to_avoid_missing_glyph_boxes() {
     let symbol_lines = [SingleSessionStyledLine {
         text: symbol_line.to_string(),
         style: SingleSessionLineStyle::AssistantLink,
+        inline_spans: Vec::new(),
     }];
     let symbol_segments = single_session_styled_text_segments(&symbol_lines);
     assert!(
@@ -1566,6 +1568,7 @@ fn assistant_symbol_lines_use_main_font_to_avoid_missing_glyph_boxes() {
     let plain_lines = [SingleSessionStyledLine {
         text: plain_line.to_string(),
         style: SingleSessionLineStyle::Assistant,
+        inline_spans: Vec::new(),
     }];
     let plain_segments = single_session_styled_text_segments(&plain_lines);
     assert!(
@@ -1617,10 +1620,29 @@ fn glyphon_body_buffer_uses_line_style_colors() {
 
 #[test]
 fn assistant_inline_code_uses_code_text_attrs_inside_prose() {
-    let lines = [SingleSessionStyledLine {
-        text: "Use `cargo test` before `cargo clippy`.".to_string(),
-        style: SingleSessionLineStyle::Assistant,
-    }];
+    let mut app = SingleSessionApp::new(None);
+    app.messages.push(SingleSessionMessage::assistant(
+        "Use `cargo test` before `cargo clippy`.",
+    ));
+    let line = app
+        .body_styled_lines()
+        .into_iter()
+        .find(|line| line.text.starts_with("Use "))
+        .expect("assistant inline code line should render");
+
+    assert_eq!(line.text, "Use cargo test before cargo clippy.");
+    assert_eq!(
+        line.inline_spans
+            .iter()
+            .map(|span| (span.start, span.end, span.kind))
+            .collect::<Vec<_>>(),
+        vec![
+            (4, 14, SingleSessionInlineSpanKind::Code),
+            (22, 34, SingleSessionInlineSpanKind::Code),
+        ]
+    );
+
+    let lines = [line];
 
     let segments = single_session_styled_text_segments(&lines);
 
@@ -1632,7 +1654,8 @@ fn assistant_inline_code_uses_code_text_attrs_inside_prose() {
                 .color(single_session_line_color(SingleSessionLineStyle::Assistant))
         ))
     );
-    for code_segment in ["`", "cargo test", "cargo clippy"] {
+    assert!(!segments.iter().any(|(text, _)| text.contains('`')));
+    for code_segment in ["cargo test", "cargo clippy"] {
         assert!(
             segments.contains(&(
                 code_segment,
@@ -1654,6 +1677,30 @@ fn assistant_inline_code_runs_and_vertices_draw_code_pills() {
         vec![(4, 12), (24, 14)]
     );
 
+    let parsed_line = SingleSessionStyledLine::with_inline_spans(
+        "Use cargo test before cargo clippy.",
+        SingleSessionLineStyle::Assistant,
+        vec![
+            SingleSessionInlineSpan {
+                start: 4,
+                end: 14,
+                kind: SingleSessionInlineSpanKind::Code,
+            },
+            SingleSessionInlineSpan {
+                start: 22,
+                end: 34,
+                kind: SingleSessionInlineSpanKind::Code,
+            },
+        ],
+    );
+    assert_eq!(
+        single_session_inline_code_runs_for_line(&parsed_line)
+            .into_iter()
+            .map(|run| (run.start_column, run.column_count))
+            .collect::<Vec<_>>(),
+        vec![(4, 10), (22, 12)]
+    );
+
     let mut app = SingleSessionApp::new(None);
     app.messages.push(SingleSessionMessage::assistant(
         "Use `cargo test` before shipping.\n\n```rust\nfn main() {}\n```",
@@ -1666,19 +1713,35 @@ fn assistant_inline_code_runs_and_vertices_draw_code_pills() {
 
 #[test]
 fn assistant_markdown_inline_segments_style_semantics_and_task_markers() {
+    let mut app = SingleSessionApp::new(None);
+    app.messages.push(SingleSessionMessage::assistant(
+        "Use **bold** and *em* and ~~old~~ with $x+y$.",
+    ));
+    let markdown_line = app
+        .body_styled_lines()
+        .into_iter()
+        .find(|line| line.text.starts_with("Use "))
+        .expect("assistant markdown line should render");
+
+    assert_eq!(markdown_line.text, "Use bold and em and old with x+y.");
+    assert_eq!(
+        markdown_line
+            .inline_spans
+            .iter()
+            .map(|span| (span.start, span.end, span.kind))
+            .collect::<Vec<_>>(),
+        vec![
+            (4, 8, SingleSessionInlineSpanKind::Strong),
+            (13, 15, SingleSessionInlineSpanKind::Emphasis),
+            (20, 23, SingleSessionInlineSpanKind::Strike),
+            (29, 32, SingleSessionInlineSpanKind::Math),
+        ]
+    );
+
     let lines = [
-        SingleSessionStyledLine {
-            text: "Use **bold** and *em* and ~~old~~ with $x+y$.".to_string(),
-            style: SingleSessionLineStyle::Assistant,
-        },
-        SingleSessionStyledLine {
-            text: "✓ shipped".to_string(),
-            style: SingleSessionLineStyle::Assistant,
-        },
-        SingleSessionStyledLine {
-            text: "☐ polish".to_string(),
-            style: SingleSessionLineStyle::Assistant,
-        },
+        markdown_line,
+        SingleSessionStyledLine::new("✓ shipped", SingleSessionLineStyle::Assistant),
+        SingleSessionStyledLine::new("☐ polish", SingleSessionLineStyle::Assistant),
     ];
 
     let segments = single_session_styled_text_segments(&lines);
@@ -1763,14 +1826,17 @@ fn single_session_tool_text_segments_use_stateful_colors() {
         SingleSessionStyledLine {
             text: "  ✓ bash · done · tests passed".to_string(),
             style: SingleSessionLineStyle::Tool,
+            inline_spans: Vec::new(),
         },
         SingleSessionStyledLine {
             text: "  │intent: Run tests                                            │".to_string(),
             style: SingleSessionLineStyle::Tool,
+            inline_spans: Vec::new(),
         },
         SingleSessionStyledLine {
             text: "  plain tool output".to_string(),
             style: SingleSessionLineStyle::Tool,
+            inline_spans: Vec::new(),
         },
     ];
 
