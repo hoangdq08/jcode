@@ -382,9 +382,7 @@ pub(super) async fn handle_bus_event(
             app.handle_model_refresh_completed(result);
             true
         }
-        Ok(BusEvent::UiActivity(activity)) => {
-            super::local::handle_ui_activity(app, activity)
-        }
+        Ok(BusEvent::UiActivity(activity)) => super::local::handle_ui_activity(app, activity),
         Ok(BusEvent::GitStatusCompleted(result)) => {
             super::commands::handle_git_status_completed(app, result);
             true
