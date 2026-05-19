@@ -138,6 +138,13 @@ pub(crate) fn build_single_session_vertices_with_scroll_and_reveal(
         spinner_tick,
         smooth_scroll_lines,
     );
+    push_single_session_inline_code_cards(
+        &mut vertices,
+        app,
+        size,
+        spinner_tick,
+        smooth_scroll_lines,
+    );
     push_single_session_selection(&mut vertices, app, size);
     push_single_session_scrollbar(&mut vertices, app, size, spinner_tick, smooth_scroll_lines);
 
@@ -228,6 +235,13 @@ pub(crate) fn build_single_session_vertices_with_cached_body(
         rendered_body_lines,
     );
     push_single_session_transcript_cards_from_viewport(
+        &mut vertices,
+        app,
+        size,
+        &viewport,
+        rendered_body_lines.len(),
+    );
+    push_single_session_inline_code_cards_from_viewport(
         &mut vertices,
         app,
         size,
@@ -4267,6 +4281,111 @@ fn push_single_session_transcript_cards_from_viewport(
         };
         push_rounded_rect(vertices, rect, 7.0, color, size);
     }
+}
+
+fn push_single_session_inline_code_cards(
+    vertices: &mut Vec<Vertex>,
+    app: &SingleSessionApp,
+    size: PhysicalSize<u32>,
+    tick: u64,
+    smooth_scroll_lines: f32,
+) {
+    let viewport = single_session_body_viewport_for_tick(app, size, tick, smooth_scroll_lines);
+    push_single_session_inline_code_cards_from_viewport(
+        vertices,
+        app,
+        size,
+        &viewport,
+        viewport.total_lines,
+    );
+}
+
+fn push_single_session_inline_code_cards_from_viewport(
+    vertices: &mut Vec<Vertex>,
+    app: &SingleSessionApp,
+    size: PhysicalSize<u32>,
+    viewport: &SingleSessionBodyViewport,
+    total_lines: usize,
+) {
+    let text_scale = app.text_scale();
+    let typography = single_session_typography_for_scale(text_scale);
+    let line_height = typography.body_size * typography.body_line_height;
+    let char_width = single_session_body_char_width_for_scale(text_scale);
+    let body_top = single_session_body_top_for_app(app, size);
+    let body_bottom = single_session_body_bottom_for_total_lines(app, size, total_lines);
+    let right = (size.width as f32 - PANEL_TITLE_LEFT_PADDING + 3.0).max(PANEL_TITLE_LEFT_PADDING);
+    let card_height = (typography.body_size * 1.10)
+        .min(line_height - 5.0)
+        .max(typography.body_size * 0.85);
+    let radius = (5.0 * text_scale).clamp(4.0, 8.0);
+    let horizontal_pad = (3.5 * text_scale).clamp(3.0, 6.0);
+
+    for (line_index, line) in viewport.lines.iter().enumerate() {
+        if !single_session_line_style_supports_inline_code_cards(line.style) {
+            continue;
+        }
+        let line_y = body_top + viewport.top_offset_pixels + line_index as f32 * line_height;
+        for run in single_session_inline_code_runs(&line.text) {
+            let x =
+                PANEL_TITLE_LEFT_PADDING + run.start_column as f32 * char_width - horizontal_pad;
+            let width = run.column_count as f32 * char_width + horizontal_pad * 2.0;
+            let clipped_right = (x + width).min(right);
+            if clipped_right <= x {
+                continue;
+            }
+            let rect = Rect {
+                x,
+                y: line_y + (line_height - card_height) * 0.5,
+                width: clipped_right - x,
+                height: card_height,
+            };
+            let Some(rect) = clip_rect_to_vertical_bounds(rect, body_top, body_bottom) else {
+                continue;
+            };
+            push_rounded_rect(vertices, rect, radius, INLINE_CODE_BACKGROUND_COLOR, size);
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct SingleSessionInlineCodeRun {
+    pub(crate) start_column: usize,
+    pub(crate) column_count: usize,
+}
+
+pub(crate) fn single_session_inline_code_runs(text: &str) -> Vec<SingleSessionInlineCodeRun> {
+    let mut runs = Vec::new();
+    let mut search_start = 0;
+
+    while let Some(open_rel) = text[search_start..].find('`') {
+        let open = search_start + open_rel;
+        let code_start = open + '`'.len_utf8();
+        let Some(close_rel) = text[code_start..].find('`') else {
+            break;
+        };
+        let close = code_start + close_rel;
+        let after_close = close + '`'.len_utf8();
+        let start_column = text[..open].chars().count();
+        let column_count = text[open..after_close].chars().count();
+        if column_count > 1 {
+            runs.push(SingleSessionInlineCodeRun {
+                start_column,
+                column_count,
+            });
+        }
+        search_start = after_close;
+    }
+
+    runs
+}
+
+fn single_session_line_style_supports_inline_code_cards(style: SingleSessionLineStyle) -> bool {
+    matches!(
+        style,
+        SingleSessionLineStyle::Assistant
+            | SingleSessionLineStyle::AssistantQuote
+            | SingleSessionLineStyle::AssistantLink
+    )
 }
 
 fn push_single_session_scrollbar(

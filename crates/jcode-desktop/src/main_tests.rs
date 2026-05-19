@@ -1466,6 +1466,26 @@ fn assistant_inline_code_uses_code_text_attrs_inside_prose() {
 }
 
 #[test]
+fn assistant_inline_code_runs_and_vertices_draw_code_pills() {
+    assert_eq!(
+        single_session_inline_code_runs("Use `cargo test` before `cargo clippy`.")
+            .into_iter()
+            .map(|run| (run.start_column, run.column_count))
+            .collect::<Vec<_>>(),
+        vec![(4, 12), (24, 14)]
+    );
+
+    let mut app = SingleSessionApp::new(None);
+    app.messages.push(SingleSessionMessage::assistant(
+        "Use `cargo test` before shipping.\n\n```rust\nfn main() {}\n```",
+    ));
+
+    let vertices = build_single_session_vertices(&app, PhysicalSize::new(1000, 720), 0.0, 0);
+    assert!(vertices_have_color(&vertices, INLINE_CODE_BACKGROUND_COLOR));
+    assert!(vertices_have_color(&vertices, CODE_BLOCK_BACKGROUND_COLOR));
+}
+
+#[test]
 fn single_session_tool_text_segments_use_stateful_colors() {
     let lines = [
         SingleSessionStyledLine {
