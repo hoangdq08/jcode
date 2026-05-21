@@ -859,16 +859,29 @@ impl SessionSwitcherState {
 
     fn filtered_indices(&self) -> Vec<usize> {
         let query = self.filter.trim().to_lowercase();
-        self.sessions
-            .iter()
-            .enumerate()
-            .filter_map(|(index, session)| {
-                if query.is_empty() || session_card_search_text(session).contains(&query) {
-                    Some(index)
-                } else {
-                    None
-                }
-            })
+        if query.is_empty() {
+            return (0..self.sessions.len()).collect();
+        }
+
+        let mut substring_matches = Vec::new();
+        let mut fuzzy_matches = Vec::new();
+        for (index, session) in self.sessions.iter().enumerate() {
+            let search_text = session_card_search_text(session);
+            if search_text.contains(&query) {
+                substring_matches.push(index);
+            } else if let Some(score) = session_switcher_fuzzy_score(&query, &search_text) {
+                fuzzy_matches.push((score, search_text.len(), index));
+            }
+        }
+        fuzzy_matches.sort_by(|a, b| {
+            a.0.cmp(&b.0)
+                .then_with(|| a.1.cmp(&b.1))
+                .then_with(|| a.2.cmp(&b.2))
+        });
+
+        substring_matches
+            .into_iter()
+            .chain(fuzzy_matches.into_iter().map(|(_, _, index)| index))
             .collect()
     }
 
@@ -4433,6 +4446,34 @@ fn session_card_search_text(session: &workspace::SessionCard) -> String {
         text.push_str(line);
     }
     text.to_lowercase()
+}
+
+fn session_switcher_fuzzy_score(needle: &str, haystack: &str) -> Option<usize> {
+    let needle = needle.trim();
+    if needle.is_empty() {
+        return Some(0);
+    }
+
+    haystack
+        .split_whitespace()
+        .filter_map(|token| session_switcher_token_fuzzy_score(needle, token))
+        .min()
+}
+
+fn session_switcher_token_fuzzy_score(needle: &str, haystack: &str) -> Option<usize> {
+    let mut score = 0usize;
+    let mut position = 0usize;
+    for ch in needle.chars() {
+        let offset = haystack[position..].find(ch)?;
+        score += offset;
+        position += offset + ch.len_utf8();
+    }
+
+    if needle.len() > 1 && score > needle.len() * 6 {
+        return None;
+    }
+
+    Some(score)
 }
 
 fn session_info_inline_styled_lines(app: &SingleSessionApp) -> Vec<SingleSessionStyledLine> {

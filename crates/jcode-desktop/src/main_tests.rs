@@ -4343,6 +4343,35 @@ fn single_session_session_switcher_loads_filters_and_resumes_session() {
 }
 
 #[test]
+fn single_session_session_switcher_filter_supports_fuzzy_abbreviations() {
+    let mut app = SingleSessionApp::new(None);
+    assert_eq!(
+        app.handle_key(KeyInput::OpenSessionSwitcher),
+        KeyOutcome::LoadSessionSwitcher
+    );
+    app.apply_session_switcher_cards(vec![
+        test_session_card("session_alpha", "alpha-notes", "active"),
+        test_session_card("session_ticket", "ticket-workspace", "closed"),
+    ]);
+
+    assert_eq!(
+        app.handle_key(KeyInput::Character("tkw".to_string())),
+        KeyOutcome::Redraw
+    );
+    let switcher = app
+        .inline_widget_styled_lines()
+        .into_iter()
+        .map(|line| line.text)
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert_eq!(app.session_switcher.filter, "tkw");
+    assert!(switcher.contains("filter: tkw"), "{switcher}");
+    assert!(switcher.contains("ticket-workspace"), "{switcher}");
+    assert!(!switcher.contains("alpha-notes"), "{switcher}");
+}
+
+#[test]
 fn single_session_resume_switcher_reopens_without_stale_filter_but_refresh_preserves_it() {
     let mut app = SingleSessionApp::new(None);
     assert_eq!(
