@@ -21,7 +21,44 @@ impl<T> DesktopProtocolEnvelope<T> {
             payload,
         }
     }
+
+    pub(crate) fn validate_version(&self) -> Result<(), DesktopProtocolCompatibilityError> {
+        validate_desktop_protocol_version(self.protocol_version)
+    }
 }
+
+pub(crate) fn validate_desktop_protocol_version(
+    protocol_version: u16,
+) -> Result<(), DesktopProtocolCompatibilityError> {
+    if protocol_version == DESKTOP_HOST_WORKER_PROTOCOL_VERSION {
+        Ok(())
+    } else {
+        Err(
+            DesktopProtocolCompatibilityError::UnsupportedProtocolVersion {
+                expected: DESKTOP_HOST_WORKER_PROTOCOL_VERSION,
+                actual: protocol_version,
+            },
+        )
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum DesktopProtocolCompatibilityError {
+    UnsupportedProtocolVersion { expected: u16, actual: u16 },
+}
+
+impl std::fmt::Display for DesktopProtocolCompatibilityError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnsupportedProtocolVersion { expected, actual } => write!(
+                formatter,
+                "unsupported desktop host-worker protocol version {actual}; expected {expected}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for DesktopProtocolCompatibilityError {}
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub(crate) enum DesktopHostToWorkerMessage {
@@ -284,6 +321,34 @@ mod tests {
             serde_json::from_str(&encoded).expect("deserialize message");
 
         assert_eq!(decoded, message);
+    }
+
+    #[test]
+    fn protocol_envelope_validates_version() {
+        let mut message = DesktopProtocolEnvelope::new(
+            1,
+            DesktopHostToWorkerMessage::SnapshotRequest { request_id: 99 },
+        );
+
+        assert_eq!(message.validate_version(), Ok(()));
+
+        message.protocol_version = DESKTOP_HOST_WORKER_PROTOCOL_VERSION + 1;
+        assert_eq!(
+            message.validate_version(),
+            Err(
+                DesktopProtocolCompatibilityError::UnsupportedProtocolVersion {
+                    expected: DESKTOP_HOST_WORKER_PROTOCOL_VERSION,
+                    actual: DESKTOP_HOST_WORKER_PROTOCOL_VERSION + 1,
+                }
+            )
+        );
+        assert!(
+            message
+                .validate_version()
+                .unwrap_err()
+                .to_string()
+                .contains("unsupported")
+        );
     }
 
     #[test]
