@@ -196,15 +196,45 @@ The same host architecture can improve startup if we treat the host as a fast sh
 
 ### Cold start from no running processes
 
-A true cold start still must pay for process launch, window creation, and WGPU device initialization. We cannot make that zero. We can improve perceived and measured startup by:
+A true cold start still must pay for process launch and window creation. It should **not** have to block window visibility on WGPU device initialization.
+
+The host should have a staged startup model:
+
+```text
+WindowHost phase
+  create event loop/window
+  make the OS window visible quickly
+  optionally draw a native/CPU/blank splash
+  start WGPU initialization asynchronously
+  start app-worker/server/session loading asynchronously
+
+GpuHost phase
+  WGPU surface/device/queue ready
+  swap in the real renderer
+  draw cached snapshot or latest worker scene
+
+LiveApp phase
+  worker ready
+  server/session state caught up
+  normal display-list rendering
+```
+
+This separates three different metrics that are currently coupled:
+
+- **time to window visible**: should not wait for WGPU
+- **time to first host pixels**: can use a no-GPU/native/CPU fallback if worthwhile
+- **time to first real GPU content**: still depends on WGPU init
+
+We can improve perceived and measured startup by:
 
 1. Keeping the host binary small.
-2. Creating the window before loading product/session state.
-3. Starting app-worker launch, server connection, font loading, and session-card loading in parallel.
-4. Drawing a host-owned boot frame as soon as the surface is configured.
-5. Showing a cached workspace/session snapshot immediately while live data catches up.
-6. Lazily creating expensive text/image renderer resources on first real use.
-7. Avoiding synchronous disk scans on the UI thread.
+2. Creating and showing the window before loading product/session state.
+3. Not blocking the host event loop on `Canvas::new(...)` / WGPU setup.
+4. Starting WGPU init, app-worker launch, server connection, font loading, and session-card loading in parallel.
+5. Drawing a host-owned GPU boot frame as soon as the WGPU surface is configured.
+6. Showing a cached workspace/session snapshot immediately while live data catches up.
+7. Lazily creating expensive text/image renderer resources on first real use.
+8. Avoiding synchronous disk scans on the UI thread.
 
 Target cold-start sequence:
 
@@ -212,14 +242,42 @@ Target cold-start sequence:
 host process starts
   parse minimal host args
   create event loop/window
+  show window immediately
+  enter event loop
   start worker process asynchronously
   start/attach server asynchronously
-  initialize WGPU surface/device
-  paint host boot frame
+  start WGPU init asynchronously
+  optionally show no-GPU/native/CPU splash
+  WGPU ready -> paint host GPU boot frame
   load cached UI snapshot
   receive worker Ready/Frame
   replace boot frame with live UI
 ```
+
+### No-GPU boot phase
+
+The host does not need to construct WGPU before it owns a window. Treat WGPU as a renderer backend that can appear later.
+
+Implementation shape:
+
+```rust
+enum HostRendererState {
+    NoGpuBoot,
+    GpuInitializing,
+    GpuReady(Canvas),
+    GpuFailed { message: String },
+}
+```
+
+In `NoGpuBoot`, the host can choose one of three fallback strategies:
+
+1. **Blank visible window**: fastest and simplest, but may look unfinished.
+2. **Native/platform splash**: use platform APIs where practical. Fast, but less portable.
+3. **CPU framebuffer splash**: use a tiny software path such as `softbuffer` for a basic solid background/logo/status. More portable than native drawing, but adds another rendering backend.
+
+The first implementation should probably start with a blank or minimal native-color visible window and metrics. Add a CPU splash only if measurements show a real user-visible gap worth covering.
+
+The important rule is that WGPU readiness should upgrade the renderer in place; it should not recreate the OS window.
 
 ### User-perceived cold starts with a resident host
 
@@ -252,9 +310,12 @@ If the new worker fails, the host keeps the old frame or a host-rendered error U
 Add or preserve metrics for:
 
 - process start to window created
-- process start to surface configured
-- process start to first host frame
-- process start to first content frame
+- process start to window visible / event loop entered
+- process start to WGPU init started
+- process start to surface configured / WGPU ready
+- process start to first no-GPU host pixels, if a fallback renderer exists
+- process start to first GPU host frame
+- process start to first live worker content frame
 - reload blackout duration
 - worker restart duration
 - display-list bytes per frame
