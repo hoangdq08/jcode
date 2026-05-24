@@ -241,20 +241,18 @@ impl SurfaceTransitionAnimator {
             });
 
             state.last_seen_generation = generation;
+            update_surface_animation_state(state, now);
             if state.exiting {
                 state.start = state.current;
                 state.target = target_values;
                 state.started_at = Some(now);
                 state.exiting = false;
             } else if surface_animation_target_changed(state.target, target_values) {
-                if state.started_at.is_none() {
-                    state.start = state.current;
-                    state.started_at = Some(now);
-                }
+                state.start = state.current;
                 state.target = target_values;
+                state.started_at = Some(now);
             }
 
-            update_surface_animation_state(state, now);
             frames.push(surface_visual_frame_from_state(target.id, state));
         }
 
@@ -264,6 +262,7 @@ impl SurfaceTransitionAnimator {
                 continue;
             }
 
+            update_surface_animation_state(state, now);
             if !state.exiting {
                 state.start = state.current;
                 state.target = SurfaceAnimationValues::exiting_from(state.current);
@@ -271,7 +270,6 @@ impl SurfaceTransitionAnimator {
                 state.exiting = true;
             }
 
-            update_surface_animation_state(state, now);
             if state.exiting && state.started_at.is_none() && state.current.opacity <= 0.001 {
                 continue;
             }

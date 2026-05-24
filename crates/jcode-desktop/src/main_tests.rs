@@ -959,6 +959,104 @@ fn surface_transition_animates_panel_exit_before_removal() {
 }
 
 #[test]
+fn surface_transition_retargets_from_current_frame_mid_animation() {
+    let mut transitions = SurfaceTransitionAnimator::default();
+    let now = Instant::now();
+    let original = SurfaceVisualTarget {
+        id: 1,
+        rect: AnimatedRect {
+            x: 0.0,
+            y: 0.0,
+            width: 100.0,
+            height: 120.0,
+        },
+    };
+    let first_target = SurfaceVisualTarget {
+        id: 1,
+        rect: AnimatedRect {
+            x: 240.0,
+            y: 60.0,
+            width: 180.0,
+            height: 220.0,
+        },
+    };
+    let second_target = SurfaceVisualTarget {
+        id: 1,
+        rect: AnimatedRect {
+            x: -80.0,
+            y: 42.0,
+            width: 150.0,
+            height: 190.0,
+        },
+    };
+
+    transitions.frame([original], now);
+    transitions.frame([first_target], now);
+    let halfway_time = now + SURFACE_TRANSITION_DURATION / 2;
+    let halfway = transitions.frame([first_target], halfway_time);
+    let halfway = surface_visual_frame(&halfway, 1);
+
+    let retarget_start = transitions.frame([second_target], halfway_time);
+    let retarget_start = surface_visual_frame(&retarget_start, 1);
+    assert_eq!(retarget_start.rect, halfway.rect);
+    assert!(transitions.is_animating());
+
+    let retarget_middle = transitions.frame(
+        [second_target],
+        halfway_time + SURFACE_TRANSITION_DURATION / 2,
+    );
+    let retarget_middle = surface_visual_frame(&retarget_middle, 1);
+    assert!(retarget_middle.rect.x < halfway.rect.x);
+    assert!(retarget_middle.rect.x > second_target.rect.x);
+}
+
+#[test]
+fn surface_transition_reenters_from_current_exit_frame() {
+    let mut transitions = SurfaceTransitionAnimator::default();
+    let now = Instant::now();
+    let original = SurfaceVisualTarget {
+        id: 1,
+        rect: AnimatedRect {
+            x: 12.0,
+            y: 24.0,
+            width: 120.0,
+            height: 160.0,
+        },
+    };
+    let reentered = SurfaceVisualTarget {
+        id: 1,
+        rect: AnimatedRect {
+            x: 120.0,
+            y: 80.0,
+            width: 160.0,
+            height: 210.0,
+        },
+    };
+
+    transitions.frame([original], now);
+    let exit_start_time = now + Duration::from_millis(6);
+    transitions.frame([], exit_start_time);
+
+    let reentry_start = transitions.frame(
+        [reentered],
+        exit_start_time + SURFACE_TRANSITION_DURATION / 2,
+    );
+    let reentry_start = surface_visual_frame(&reentry_start, 1);
+    assert!(!reentry_start.exiting);
+    assert!(reentry_start.opacity > 0.0);
+    assert!(reentry_start.opacity < 1.0);
+    assert!(reentry_start.rect.y < original.rect.y);
+
+    let settled = transitions.frame(
+        [reentered],
+        exit_start_time + SURFACE_TRANSITION_DURATION * 2,
+    );
+    let settled = surface_visual_frame(&settled, 1);
+    assert_eq!(settled.rect, reentered.rect);
+    assert_eq!(settled.opacity, 1.0);
+}
+
+#[test]
 fn color_transition_interpolates_status_bar_mode_changes() {
     let mut transition = ColorTransition::default();
     let now = Instant::now();
