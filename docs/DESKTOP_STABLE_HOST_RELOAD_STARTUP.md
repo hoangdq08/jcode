@@ -1,7 +1,7 @@
 # Desktop Stable Host, Hot Reload, and Fast Startup Plan
 
-Status: Proposed
-Updated: 2026-05-23
+Status: In progress
+Updated: 2026-05-24
 
 ## Why this exists
 
@@ -418,3 +418,41 @@ After that, moving the scene builder into a worker process becomes a mechanical 
 For reloads that never move the window, we need a stable window owner. For faster starts, that stable owner should also be a small fast shell that can draw immediately, keep expensive renderer resources warm, and load product/session logic asynchronously.
 
 The recommended path is a stable `jcode-desktop-host` plus a reloadable `jcode-desktop-app` worker communicating via a typed display-list protocol. It avoids Wayland window-position limitations, avoids Rust plugin ABI hazards, and creates a natural path to both smooth hot reloads and better perceived cold-start performance.
+
+## Current implementation snapshot
+
+As of 2026-05-24, the first stable-host slice exists in the current `jcode-desktop` binary:
+
+- WGPU/canvas initialization is spawned after the `winit` window is created, so the event loop can enter before GPU setup finishes.
+- `DesktopScene`, `DesktopUiSnapshot`, host/worker protocol messages, JSON-lines IPC framing, and protocol-version validation are in place.
+- `--desktop-process-role stable-host` owns the OS window and renderer and starts a headless `app-worker` child process.
+- Stable-host reload uses `DesktopReloadStrategy::AppWorkerRestart`, killing/restarting only the app worker while the host window stays alive.
+- The app worker initializes a real `DesktopAppRuntime`, restores the host snapshot, applies key/session IPC events, and emits updated scenes back to the host.
+- The host renders worker-produced scenes through `Canvas::render_scene(...)` when available.
+
+Validation performed for this slice:
+
+- `cargo test -p jcode-desktop desktop_`
+- `cargo check -p jcode-desktop`
+- `selfdev build target=desktop`
+- runtime smoke: `cargo run -p jcode-desktop --bin jcode-desktop -- --desktop-process-role stable-host --startup-benchmark --startup-log`
+
+## Crate-split and cold-start assessment
+
+The next split should not be a separate binary yet. The code is functionally split, but `crates/jcode-desktop/src/main.rs` is still a large 10k+ line compilation unit that imports both heavy renderer dependencies (`wgpu`, `glyphon`) and app/session logic. Splitting crates before moving more code out of `main.rs` would add build-system complexity without materially reducing cold-start work.
+
+Recommended order:
+
+1. **Module split inside `jcode-desktop` first.** Move stable-host/window/reload code, worker-process loop, and canvas/rendering code out of `main.rs` into focused modules. This reduces merge conflicts and makes crate boundaries obvious without changing packaging.
+2. **Promote protocol and scene types to a small crate.** `desktop_protocol`, `desktop_scene`, and IPC framing are already mostly independent. A future `jcode-desktop-protocol` crate can compile quickly and be shared by host and worker without pulling WGPU.
+3. **Create a host binary only after the host module no longer depends on app reducers.** The host binary should depend on `winit`, `wgpu`, `glyphon`, protocol/scene types, and worker lifecycle only. It should not depend on session reducers except for versioned snapshots and host fallback/error UI.
+4. **Create an app-worker binary after product UI state is behind `DesktopAppDriver`.** The worker binary should own `SingleSessionApp`, `Workspace`, session/server integration, and scene construction. It should not link WGPU or glyph atlases.
+5. **Measure before adding a resident daemon.** A resident host can make user-perceived launch nearly instant, but it also adds idle memory/GPU cost. Add it only after we have startup metrics for cold host process, WGPU readiness, worker ready, and first live scene.
+
+Expected cold-start impact:
+
+- **On-demand cold start:** splitting crates/binaries mainly helps by keeping host initialization small and allowing worker/app loading to happen in parallel. It does not remove WGPU cost for first GPU pixels.
+- **Perceived cold start:** the stable host can show the window immediately and keep a boot/cached frame visible while WGPU and worker startup race in parallel.
+- **Warm/reload start:** this is where the architecture already wins. The host keeps the window and renderer alive, and only the worker restarts.
+
+Current recommendation: defer physical crate split until the host/worker modules are cleaner and the debug-socket E2E reload test is in place. The next best engineering step is stronger end-to-end validation, not more crate boundaries.
