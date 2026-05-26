@@ -205,7 +205,8 @@ impl Tool for ConversationSearchTool {
                                 };
                                 output.push_str(&format!("[Tool result: {}]\n", preview));
                             }
-                            crate::message::ContentBlock::Reasoning { .. } => {}
+                            crate::message::ContentBlock::Reasoning { .. }
+                            | crate::message::ContentBlock::AnthropicThinking { .. } => {}
                             crate::message::ContentBlock::Image { .. } => {
                                 output.push_str("[Image]\n");
                             }

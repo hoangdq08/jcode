@@ -208,9 +208,11 @@ impl Agent {
             let mut stop_reason: Option<String> = None;
             let mut sdk_tool_results: std::collections::HashMap<String, (String, bool)> =
                 std::collections::HashMap::new();
+            let provider_name = self.provider.name().to_string();
             let store_reasoning_content =
-                crate::provider::stores_reasoning_content_for_context(self.provider.name());
+                crate::provider::stores_reasoning_content_for_context(&provider_name);
             let mut reasoning_content = String::new();
+            let mut reasoning_signature = String::new();
             let mut openai_native_compaction: Option<(String, usize)> = None;
             let mut tool_id_to_name: std::collections::HashMap<String, String> =
                 std::collections::HashMap::new();
@@ -315,6 +317,11 @@ impl Agent {
 
                 match event {
                     StreamEvent::ThinkingStart | StreamEvent::ThinkingEnd => {}
+                    StreamEvent::ThinkingSignatureDelta(signature) => {
+                        if store_reasoning_content {
+                            reasoning_signature.push_str(&signature);
+                        }
+                    }
                     StreamEvent::ThinkingDelta(thinking_text) => {
                         // Only send thinking content if enabled in config
                         if crate::config::config().display.show_thinking {
@@ -721,10 +728,13 @@ impl Agent {
                     cache_control: None,
                 });
             }
-            if store_reasoning_content && !reasoning_content.is_empty() {
-                content_blocks.push(ContentBlock::Reasoning {
-                    text: reasoning_content.clone(),
-                });
+            if store_reasoning_content {
+                crate::message::push_reasoning_content_block(
+                    &mut content_blocks,
+                    &provider_name,
+                    &reasoning_content,
+                    Some(&reasoning_signature),
+                );
             }
             for tc in &tool_calls {
                 content_blocks.push(ContentBlock::ToolUse {

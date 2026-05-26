@@ -63,11 +63,13 @@ pub(crate) use routing::{
 ///
 /// Display is controlled separately by `display.show_thinking`. Persist only
 /// when a provider request builder can safely send the stored block back in
-/// the provider-native shape. Anthropic thinking blocks require signatures,
-/// which the generic `ContentBlock::Reasoning` does not preserve, so storing
-/// Anthropic reasoning would bloat history without restoring provider context.
+/// the provider-native shape. Anthropic is included only because we preserve
+/// its thinking signatures in `ContentBlock::AnthropicThinking`.
 pub fn stores_reasoning_content_for_context(provider_name: &str) -> bool {
-    provider_name.eq_ignore_ascii_case("openrouter")
+    matches!(
+        provider_name.to_ascii_lowercase().as_str(),
+        "openrouter" | "anthropic"
+    )
 }
 
 fn cached_live_models_for_openai_compatible_profile(

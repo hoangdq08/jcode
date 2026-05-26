@@ -227,7 +227,9 @@ fn test_anthropic_thinking_sse_events() {
         &mut cache_creation_input_tokens,
         false,
     );
-    assert!(events.is_empty());
+    assert!(
+        matches!(events.as_slice(), [StreamEvent::ThinkingSignatureDelta(sig)] if sig == "signed")
+    );
 
     let stop = SseEvent {
         event_type: "content_block_stop".to_string(),
@@ -245,6 +247,30 @@ fn test_anthropic_thinking_sse_events() {
     );
     assert!(matches!(events.as_slice(), [StreamEvent::ThinkingEnd]));
     assert!(!current_thinking_block);
+}
+
+#[test]
+fn test_anthropic_signed_thinking_replayed_in_request_blocks() {
+    let provider = AnthropicProvider::new();
+    let blocks = provider.format_content_blocks(
+        &[ContentBlock::AnthropicThinking {
+            thinking: "reasoning text".to_string(),
+            signature: "signed".to_string(),
+        }],
+        false,
+    );
+
+    let value = serde_json::to_value(&blocks).expect("serialize content blocks");
+    assert_eq!(
+        value,
+        serde_json::json!([
+            {
+                "type": "thinking",
+                "thinking": "reasoning text",
+                "signature": "signed"
+            }
+        ])
+    );
 }
 
 #[tokio::test]

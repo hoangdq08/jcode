@@ -161,7 +161,7 @@ impl App {
                         };
                         transcript.push_str(&format!("[Result: {}]\n", preview));
                     }
-                    ContentBlock::Reasoning { .. } => {}
+                    ContentBlock::Reasoning { .. } | ContentBlock::AnthropicThinking { .. } => {}
                     ContentBlock::Image { .. } => {
                         transcript.push_str("[Image]\n");
                     }

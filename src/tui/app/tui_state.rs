@@ -774,6 +774,12 @@ impl crate::tui::TuiState for App {
                         ContentBlock::Reasoning { text } => {
                             asst_chars += text.len();
                         }
+                        ContentBlock::AnthropicThinking {
+                            thinking,
+                            signature,
+                        } => {
+                            asst_chars += thinking.len() + signature.len();
+                        }
                         ContentBlock::Image { data, .. } => {
                             user_chars += data.len();
                         }

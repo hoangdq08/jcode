@@ -347,6 +347,14 @@ impl ProviderMessageMemoryStats {
                     self.reasoning_bytes += text.len();
                     self.record_bytes(text.len());
                 }
+                crate::message::ContentBlock::AnthropicThinking {
+                    thinking,
+                    signature,
+                } => {
+                    let bytes = thinking.len() + signature.len();
+                    self.reasoning_bytes += bytes;
+                    self.record_bytes(bytes);
+                }
                 crate::message::ContentBlock::ToolUse { input, .. } => {
                     let bytes = crate::process_memory::estimate_json_bytes(input);
                     self.tool_use_input_json_bytes += bytes;

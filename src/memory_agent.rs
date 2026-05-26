@@ -97,7 +97,8 @@ pub fn build_transcript_for_extraction(messages: &[crate::message::Message]) -> 
                     };
                     transcript.push_str(&format!("[Result: {}]\n", preview));
                 }
-                crate::message::ContentBlock::Reasoning { .. } => {}
+                crate::message::ContentBlock::Reasoning { .. }
+                | crate::message::ContentBlock::AnthropicThinking { .. } => {}
                 crate::message::ContentBlock::Image { .. } => {
                     transcript.push_str("[Image]\n");
                 }

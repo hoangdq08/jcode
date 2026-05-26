@@ -76,6 +76,15 @@ impl ContentBlockMemoryStats {
                 self.reasoning_bytes += text.len();
                 self.record_bytes(text.len());
             }
+            ContentBlock::AnthropicThinking {
+                thinking,
+                signature,
+            } => {
+                self.reasoning_blocks += 1;
+                let bytes = thinking.len() + signature.len();
+                self.reasoning_bytes += bytes;
+                self.record_bytes(bytes);
+            }
             ContentBlock::ToolUse { input, .. } => {
                 self.tool_use_blocks += 1;
                 let input_bytes = estimate_json_bytes(input);

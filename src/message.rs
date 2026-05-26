@@ -215,6 +215,30 @@ pub fn redact_secrets(text: &str) -> String {
 pub const GENERATED_IMAGE_TOOL_NAME: &str = "image_generation";
 pub const GENERATED_IMAGE_MAX_AUTO_VISION_BYTES: u64 = 20 * 1024 * 1024;
 
+pub fn push_reasoning_content_block(
+    blocks: &mut Vec<ContentBlock>,
+    provider_name: &str,
+    reasoning_content: &str,
+    reasoning_signature: Option<&str>,
+) {
+    if reasoning_content.is_empty() {
+        return;
+    }
+
+    if provider_name.eq_ignore_ascii_case("anthropic") {
+        if let Some(signature) = reasoning_signature.filter(|s| !s.is_empty()) {
+            blocks.push(ContentBlock::AnthropicThinking {
+                thinking: reasoning_content.to_string(),
+                signature: signature.to_string(),
+            });
+        }
+    } else {
+        blocks.push(ContentBlock::Reasoning {
+            text: reasoning_content.to_string(),
+        });
+    }
+}
+
 pub fn generated_image_tool_input(
     path: &str,
     metadata_path: Option<&str>,

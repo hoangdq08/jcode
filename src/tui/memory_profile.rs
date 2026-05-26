@@ -200,6 +200,14 @@ impl ProviderMessageMemoryStats {
                     self.reasoning_bytes += text.len();
                     self.record_bytes(text.len());
                 }
+                ContentBlock::AnthropicThinking {
+                    thinking,
+                    signature,
+                } => {
+                    let bytes = thinking.len() + signature.len();
+                    self.reasoning_bytes += bytes;
+                    self.record_bytes(bytes);
+                }
                 ContentBlock::ToolUse { input, .. } => {
                     let bytes = crate::process_memory::estimate_json_bytes(input);
                     self.tool_use_input_json_bytes += bytes;
