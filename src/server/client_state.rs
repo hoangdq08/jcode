@@ -320,17 +320,17 @@ fn history_reload_recovery_snapshot(
     session_id: &str,
     was_interrupted: Option<bool>,
 ) -> Option<crate::protocol::ReloadRecoverySnapshot> {
-    match super::reload_recovery::claim_pending_for_session(session_id) {
+    match super::reload_recovery::pending_directive_for_session(session_id) {
         Ok(Some(directive)) => {
             crate::logging::info(&format!(
-                "history_reload_recovery_snapshot: using server-owned recovery intent for session={}",
+                "history_reload_recovery_snapshot: attaching server-owned recovery intent for session={} without marking delivered",
                 session_id
             ));
             return Some(directive);
         }
         Ok(None) => {}
         Err(err) => crate::logging::warn(&format!(
-            "history_reload_recovery_snapshot: failed to claim server-owned recovery intent for session={}: {}",
+            "history_reload_recovery_snapshot: failed to read server-owned recovery intent for session={}: {}",
             session_id, err
         )),
     }

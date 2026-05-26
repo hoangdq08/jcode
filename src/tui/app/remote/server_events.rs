@@ -928,19 +928,37 @@ pub(in crate::tui::app) fn handle_server_event(
             if let Some(reload_recovery) = reload_recovery
                 && !app.display_messages.is_empty()
             {
+                let continuation_message = reload_recovery.continuation_message;
                 crate::logging::info(&format!(
                     "History payload requested reload recovery continuation: session={} was_interrupted={:?}",
                     session_id, was_interrupted
                 ));
-                if let Some(notice) = reload_recovery.reconnect_notice {
+                if let Some(notice) = reload_recovery.reconnect_notice
+                    && !app.reload_info.iter().any(|existing| existing == &notice)
+                {
                     app.reload_info.push(notice);
                 }
-                app.push_display_message(DisplayMessage::system(
-                    "Reload complete — continuing because a recovery directive was pending."
-                        .to_string(),
-                ));
-                app.hidden_queued_system_messages
-                    .push(reload_recovery.continuation_message);
+                let already_queued = app
+                    .hidden_queued_system_messages
+                    .iter()
+                    .any(|queued| queued == &continuation_message)
+                    || app
+                        .rate_limit_pending_message
+                        .as_ref()
+                        .and_then(|pending| pending.system_reminder.as_ref())
+                        .is_some_and(|queued| queued == &continuation_message);
+                if already_queued {
+                    crate::logging::info(&format!(
+                        "History payload reload recovery continuation already queued/in-flight: session={}",
+                        session_id
+                    ));
+                } else {
+                    app.push_display_message(DisplayMessage::system(
+                        "Reload complete — continuing because a recovery directive was pending."
+                            .to_string(),
+                    ));
+                    app.hidden_queued_system_messages.push(continuation_message);
+                }
             } else if pending_reload_reconnect_status.is_some() {
                 let message = match was_interrupted {
                     Some(false) => {
