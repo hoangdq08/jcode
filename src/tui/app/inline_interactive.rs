@@ -2066,7 +2066,10 @@ impl App {
                         }
 
                         let bare_name = model_entry_base_name(&entry);
-                        let spec = if route.api_method == "openrouter" && route.provider == "auto" {
+                        let spec = if crate::provider::ModelRouteApiMethod::parse(&route.api_method)
+                            .is_openrouter()
+                            && route.provider == "auto"
+                        {
                             openrouter_route_model_id(&bare_name)
                         } else {
                             picker_route_model_spec(&entry, route)
