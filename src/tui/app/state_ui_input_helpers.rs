@@ -1142,16 +1142,17 @@ impl App {
             ),
         ];
 
-        if let Some(prompt) = latest_external_cli_continuation_prompt() {
-            prompts.push(("Continue my last CLI agent session".to_string(), prompt));
-        } else {
-            prompts.push(
-            (
-                "Find my social media and roast me".to_string(),
-                "Find a social media platform I use, look around at my profile and posts, then give me a brutally honest roast based on what you see.".to_string(),
-            ),
-            );
-        }
+        prompts.push((
+            "Continue my last CLI agent session".to_string(),
+            latest_external_cli_continuation_prompt().unwrap_or_else(|| {
+                "Find my recent Codex or Claude Code sessions, identify the latest useful one, summarize what was happening, and continue from there.".to_string()
+            }),
+        ));
+
+        prompts.push((
+            "Find my social media and roast me".to_string(),
+            "Find a social media platform I use, look around at my profile and posts, then give me a brutally honest roast based on what you see.".to_string(),
+        ));
 
         prompts
     }

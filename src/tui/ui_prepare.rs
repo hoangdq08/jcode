@@ -486,11 +486,11 @@ fn prepare_messages_inner(app: &dyn TuiState, width: u16, height: u16) -> Prepar
                 wrapped_lines.push(Line::from(""));
                 wrapped_lines.push(
                     Line::from(Span::styled(
-                        if is_centered {
-                            "Press 1-3 or type anything to start"
-                        } else {
-                            "  Press 1-3 or type anything to start"
-                        },
+                        format!(
+                            "{}Press 1-{} or type anything to start",
+                            if is_centered { "" } else { "  " },
+                            suggestions.len()
+                        ),
                         Style::default().fg(dim_color()),
                     ))
                     .alignment(suggestion_align),
