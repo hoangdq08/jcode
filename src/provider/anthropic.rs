@@ -1348,7 +1348,10 @@ impl Provider for AnthropicProvider {
     }
 
     fn service_tier(&self) -> Option<String> {
-        match self.current_service_tier_for_model(&self.model()).as_deref() {
+        match self
+            .current_service_tier_for_model(&self.model())
+            .as_deref()
+        {
             Some("auto") => Some("priority".to_string()),
             _ => None,
         }
