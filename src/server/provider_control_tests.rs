@@ -462,7 +462,7 @@ fn cerebras_auth_hint_applies_openai_compatible_runtime_profile() {
 
     let activation = crate::auth::lifecycle::activate_auth_change(&request);
     let default_model = activation.activated_model.as_deref();
-    assert_eq!(default_model, Some("qwen-3-235b-a22b-instruct-2507"));
+    assert_eq!(default_model, Some("gpt-oss-120b"));
     assert_eq!(
         std::env::var("JCODE_RUNTIME_PROVIDER").as_deref(),
         Ok("openai-compatible")
@@ -685,7 +685,7 @@ async fn notify_auth_changed_switches_from_stale_model_to_matching_provider_rout
     assert!(
         final_activity
             .message
-            .contains("Selected model: `qwen-3-235b-a22b-instruct-2507`"),
+            .contains("Selected model: `gpt-oss-120b`"),
         "final auth catalog update should switch away from stale OpenAI model: {}",
         final_activity.message
     );
