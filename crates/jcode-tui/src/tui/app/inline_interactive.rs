@@ -1924,7 +1924,7 @@ impl App {
                 name
             )));
         }
-        crate::tui::workspace_client::queue_resume_session(session_id);
+        self.workspace_client.queue_resume_session(session_id);
         self.session_picker_overlay = None;
         self.session_picker_mode = SessionPickerMode::Resume;
         self.set_status_notice(format!("Switching → {}", name));

@@ -649,7 +649,7 @@ impl App {
                     tool_data: m.tool_data.clone(),
                 })
                 .collect(),
-            streaming_text: self.streaming_text.clone(),
+            streaming_text: self.streaming.streaming_text.clone(),
             streaming_tool_calls: self.streaming_tool_calls.clone(),
             input: self.input.clone(),
             cursor_pos: self.cursor_pos,
@@ -670,10 +670,10 @@ impl App {
                 .map(|s| s.name.clone())
                 .collect(),
             session_id: self.provider_session_id.clone(),
-            input_tokens: self.streaming_input_tokens,
-            output_tokens: self.streaming_output_tokens,
-            cache_read_input_tokens: self.streaming_cache_read_tokens,
-            cache_creation_input_tokens: self.streaming_cache_creation_tokens,
+            input_tokens: self.streaming.streaming_input_tokens,
+            output_tokens: self.streaming.streaming_output_tokens,
+            cache_read_input_tokens: self.streaming.streaming_cache_read_tokens,
+            cache_creation_input_tokens: self.streaming.streaming_cache_creation_tokens,
             queued_messages: self.queued_messages.clone(),
         }
     }
@@ -956,10 +956,10 @@ fn format_cache_stats(app: &App) -> String {
     let remote_cache_write = remote_usage
         .map(|usage| usage.cache_creation_input_tokens)
         .unwrap_or(0);
-    let reported = remote_cache_reported.saturating_add(app.total_cache_reported_input_tokens);
-    let read = remote_cache_read.saturating_add(app.total_cache_read_tokens);
-    let write = remote_cache_write.saturating_add(app.total_cache_creation_tokens);
-    let optimal = app.total_cache_optimal_input_tokens;
+    let reported = remote_cache_reported.saturating_add(app.token_accounting.total_cache_reported_input_tokens);
+    let read = remote_cache_read.saturating_add(app.token_accounting.total_cache_read_tokens);
+    let write = remote_cache_write.saturating_add(app.token_accounting.total_cache_creation_tokens);
+    let optimal = app.token_accounting.total_cache_optimal_input_tokens;
     // `reported` is the aggregate of provider-reported `input_tokens`, which for
     // split-accounting providers (Anthropic) excludes cached + cache-creation
     // tokens. Percentages must use the effective prompt size so they stay in
@@ -971,30 +971,30 @@ fn format_cache_stats(app: &App) -> String {
     let optimal_pct = (optimal > 0).then(|| cache_ratio_pct(read, optimal));
     let cache_totals_source = match (
         remote_usage.is_some(),
-        app.total_cache_reported_input_tokens > 0,
+        app.token_accounting.total_cache_reported_input_tokens > 0,
     ) {
         (true, true) => "remote_history+client_observed_api_calls",
         (true, false) => "remote_history",
         (false, true) => "client_observed_api_calls",
         (false, false) => "none_yet",
     };
-    let live_cache_telemetry = app.streaming_input_tokens > 0
-        && !app.current_api_usage_recorded
-        && (app.streaming_cache_read_tokens.is_some()
-            || app.streaming_cache_creation_tokens.is_some());
+    let live_cache_telemetry = app.streaming.streaming_input_tokens > 0
+        && !app.kv_cache.current_api_usage_recorded
+        && (app.streaming.streaming_cache_read_tokens.is_some()
+            || app.streaming.streaming_cache_creation_tokens.is_some());
     let live_reported = if live_cache_telemetry {
-        app.streaming_input_tokens
+        app.streaming.streaming_input_tokens
     } else {
         0
     };
     let reported_including_live = reported.saturating_add(live_reported);
     let read_including_live = read.saturating_add(if live_cache_telemetry {
-        app.streaming_cache_read_tokens.unwrap_or(0)
+        app.streaming.streaming_cache_read_tokens.unwrap_or(0)
     } else {
         0
     });
     let write_including_live = write.saturating_add(if live_cache_telemetry {
-        app.streaming_cache_creation_tokens.unwrap_or(0)
+        app.streaming.streaming_cache_creation_tokens.unwrap_or(0)
     } else {
         0
     });
@@ -1102,9 +1102,9 @@ fn format_cache_stats(app: &App) -> String {
     let (history_input_tokens, history_output_tokens, totals_source) = if app.is_remote {
         if let Some((input, output)) = remote_history_tokens {
             (
-                input.saturating_add(app.total_input_tokens),
-                output.saturating_add(app.total_output_tokens),
-                if app.total_input_tokens > 0 || app.total_output_tokens > 0 {
+                input.saturating_add(app.token_accounting.total_input_tokens),
+                output.saturating_add(app.token_accounting.total_output_tokens),
+                if app.token_accounting.total_input_tokens > 0 || app.token_accounting.total_output_tokens > 0 {
                     "remote_history+client_observed_api_calls"
                 } else {
                     "remote_history"
@@ -1112,27 +1112,27 @@ fn format_cache_stats(app: &App) -> String {
             )
         } else {
             (
-                app.total_input_tokens,
-                app.total_output_tokens,
+                app.token_accounting.total_input_tokens,
+                app.token_accounting.total_output_tokens,
                 "client_observed_api_calls",
             )
         }
     } else {
         (
-            app.total_input_tokens,
-            app.total_output_tokens,
+            app.token_accounting.total_input_tokens,
+            app.token_accounting.total_output_tokens,
             "local_completed_turns",
         )
     };
     let live_unrecorded_input_tokens =
-        if app.streaming_input_tokens > 0 && !app.current_api_usage_recorded {
-            app.streaming_input_tokens
+        if app.streaming.streaming_input_tokens > 0 && !app.kv_cache.current_api_usage_recorded {
+            app.streaming.streaming_input_tokens
         } else {
             0
         };
     let live_unrecorded_output_tokens =
-        if app.streaming_output_tokens > 0 && !app.current_api_usage_recorded {
-            app.streaming_output_tokens
+        if app.streaming.streaming_output_tokens > 0 && !app.kv_cache.current_api_usage_recorded {
+            app.streaming.streaming_output_tokens
         } else {
             0
         };
@@ -1183,22 +1183,22 @@ fn format_cache_stats(app: &App) -> String {
     ));
     lines.push(format!(
         "- client_observed_completed_input_tokens: {}",
-        bold_count(app.total_input_tokens)
+        bold_count(app.token_accounting.total_input_tokens)
     ));
     lines.push(format!(
         "- client_observed_completed_output_tokens: {}",
-        bold_count(app.total_output_tokens)
+        bold_count(app.token_accounting.total_output_tokens)
     ));
-    lines.push(format!("- total_cost_usd: {:.6}", app.total_cost));
+    lines.push(format!("- total_cost_usd: {:.6}", app.cost.total_cost));
     lines.push(format!(
         "- cached_prompt_price_per_1m: {}",
-        app.cached_prompt_price
+        app.cost.cached_prompt_price
             .map(|price| format!("{:.6}", price))
             .unwrap_or_else(|| "None".to_string())
     ));
     lines.push(format!(
         "- cached_completion_price_per_1m: {}",
-        app.cached_completion_price
+        app.cost.cached_completion_price
             .map(|price| format!("{:.6}", price))
             .unwrap_or_else(|| "None".to_string())
     ));
@@ -1281,50 +1281,50 @@ fn format_cache_stats(app: &App) -> String {
     ));
     lines.push(format!(
         "- last_cache_reported_input_tokens: {}",
-        opt_u64(app.last_cache_reported_input_tokens)
+        opt_u64(app.token_accounting.last_cache_reported_input_tokens)
     ));
     lines.push(format!(
         "- last_cache_read_tokens: {}",
-        opt_u64(app.last_cache_read_tokens)
+        opt_u64(app.token_accounting.last_cache_read_tokens)
     ));
     lines.push(format!(
         "- last_cache_creation_tokens: {}",
-        opt_u64(app.last_cache_creation_tokens)
+        opt_u64(app.token_accounting.last_cache_creation_tokens)
     ));
     lines.push(format!(
         "- last_cache_optimal_input_tokens: {}",
-        opt_u64(app.last_cache_optimal_input_tokens)
+        opt_u64(app.token_accounting.last_cache_optimal_input_tokens)
     ));
     lines.push(format!(
         "- cache_next_optimal_input_tokens: {}",
-        opt_u64(app.cache_next_optimal_input_tokens)
+        opt_u64(app.token_accounting.cache_next_optimal_input_tokens)
     ));
     lines.push(String::new());
 
     lines.push("Current / live stream counters".to_string());
     lines.push(format!(
         "- streaming_input_tokens: {}",
-        bold_count(app.streaming_input_tokens)
+        bold_count(app.streaming.streaming_input_tokens)
     ));
     lines.push(format!(
         "- streaming_output_tokens: {}",
-        bold_count(app.streaming_output_tokens)
+        bold_count(app.streaming.streaming_output_tokens)
     ));
     lines.push(format!(
         "- streaming_total_output_tokens: {}",
-        bold_count(app.streaming_total_output_tokens)
+        bold_count(app.streaming.streaming_total_output_tokens)
     ));
     lines.push(format!(
         "- streaming_cache_read_tokens: {}",
-        opt_u64(app.streaming_cache_read_tokens)
+        opt_u64(app.streaming.streaming_cache_read_tokens)
     ));
     lines.push(format!(
         "- streaming_cache_creation_tokens: {}",
-        opt_u64(app.streaming_cache_creation_tokens)
+        opt_u64(app.streaming.streaming_cache_creation_tokens)
     ));
     lines.push(format!(
         "- current_api_usage_recorded: {}",
-        app.current_api_usage_recorded
+        app.kv_cache.current_api_usage_recorded
     ));
     lines.push(format!("- status: {:?}", app.status));
     lines.push(format!("- is_processing: {}", app.is_processing));
@@ -1353,18 +1353,18 @@ fn format_cache_stats(app: &App) -> String {
     lines.push("KV cache tracker state".to_string());
     lines.push(format!(
         "- kv_cache_turn_number: {}",
-        opt_usize(app.kv_cache_turn_number)
+        opt_usize(app.kv_cache.kv_cache_turn_number)
     ));
     lines.push(format!(
         "- kv_cache_turn_call_index: {}",
-        app.kv_cache_turn_call_index
+        app.kv_cache.kv_cache_turn_call_index
     ));
     lines.push(format!(
         "- kv_cache_miss_samples_len: {}",
-        app.kv_cache_miss_samples.len()
+        app.kv_cache.kv_cache_miss_samples.len()
     ));
-    push_cache_baseline(&mut lines, "baseline", app.kv_cache_baseline.as_ref());
-    if let Some(request) = app.pending_kv_cache_request.as_ref() {
+    push_cache_baseline(&mut lines, "baseline", app.kv_cache.kv_cache_baseline.as_ref());
+    if let Some(request) = app.kv_cache.pending_kv_cache_request.as_ref() {
         lines.push("- pending_request: present".to_string());
         lines.push(format!(
             "- pending_request.turn_number: {}",
@@ -1441,10 +1441,10 @@ fn format_cache_stats(app: &App) -> String {
     lines.push(String::new());
 
     lines.push("Recent miss attributions".to_string());
-    if app.kv_cache_miss_samples.is_empty() {
+    if app.kv_cache.kv_cache_miss_samples.is_empty() {
         lines.push("- none attributed".to_string());
     } else {
-        for sample in app.kv_cache_miss_samples.iter().rev() {
+        for sample in app.kv_cache.kv_cache_miss_samples.iter().rev() {
             lines.push(format!(
                 "- turn={} call={} missed_tokens={} reason={}",
                 sample.turn_number,
@@ -1598,7 +1598,7 @@ pub(super) fn handle_info_command(app: &mut App, trimmed: &str) -> bool {
         ));
         info.push_str(&format!(
             "Tokens: ↑{} ↓{}\n",
-            app.total_input_tokens, app.total_output_tokens
+            app.token_accounting.total_input_tokens, app.token_accounting.total_output_tokens
         ));
         info.push_str(&format!("Terminal: {}\n", terminal_size));
         info.push_str(&format!("CWD: {}\n", cwd));
@@ -1678,7 +1678,7 @@ pub(super) fn handle_info_command(app: &mut App, trimmed: &str) -> bool {
                     app.provider.reasoning_effort(),
                     app.provider.service_tier(),
                     app.provider.transport(),
-                    Some((app.total_input_tokens, app.total_output_tokens)),
+                    Some((app.token_accounting.total_input_tokens, app.token_accounting.total_output_tokens)),
                 )
             };
 

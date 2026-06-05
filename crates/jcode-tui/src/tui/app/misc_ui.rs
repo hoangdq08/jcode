@@ -3,39 +3,39 @@ use super::*;
 /// Update cost calculation based on token usage (for API-key providers)
 impl App {
     pub(super) fn current_streaming_tps_elapsed(&self) -> Duration {
-        let mut elapsed = self.streaming_tps_elapsed;
-        if let Some(start) = self.streaming_tps_start {
+        let mut elapsed = self.streaming.streaming_tps_elapsed;
+        if let Some(start) = self.streaming.streaming_tps_start {
             elapsed += start.elapsed();
         }
         elapsed
     }
 
     pub(super) fn snapshot_streaming_tps(&mut self) {
-        self.streaming_tps_observed_output_tokens = self.streaming_total_output_tokens;
-        self.streaming_tps_observed_elapsed = self.current_streaming_tps_elapsed();
+        self.streaming.streaming_tps_observed_output_tokens = self.streaming.streaming_total_output_tokens;
+        self.streaming.streaming_tps_observed_elapsed = self.current_streaming_tps_elapsed();
     }
 
     pub(super) fn resume_streaming_tps(&mut self) {
-        self.streaming_tps_collect_output = true;
-        if self.streaming_tps_start.is_none() {
-            self.streaming_tps_start = Some(Instant::now());
+        self.streaming.streaming_tps_collect_output = true;
+        if self.streaming.streaming_tps_start.is_none() {
+            self.streaming.streaming_tps_start = Some(Instant::now());
         }
     }
 
     pub(super) fn pause_streaming_tps(&mut self, keep_collecting_output: bool) {
-        if let Some(start) = self.streaming_tps_start.take() {
-            self.streaming_tps_elapsed += start.elapsed();
+        if let Some(start) = self.streaming.streaming_tps_start.take() {
+            self.streaming.streaming_tps_elapsed += start.elapsed();
         }
-        self.streaming_tps_collect_output = keep_collecting_output;
+        self.streaming.streaming_tps_collect_output = keep_collecting_output;
     }
 
     pub(super) fn reset_streaming_tps(&mut self) {
-        self.streaming_tps_start = None;
-        self.streaming_tps_elapsed = Duration::ZERO;
-        self.streaming_tps_collect_output = false;
-        self.streaming_total_output_tokens = 0;
-        self.streaming_tps_observed_output_tokens = 0;
-        self.streaming_tps_observed_elapsed = Duration::ZERO;
+        self.streaming.streaming_tps_start = None;
+        self.streaming.streaming_tps_elapsed = Duration::ZERO;
+        self.streaming.streaming_tps_collect_output = false;
+        self.streaming.streaming_total_output_tokens = 0;
+        self.streaming.streaming_tps_observed_output_tokens = 0;
+        self.streaming.streaming_tps_observed_elapsed = Duration::ZERO;
     }
 
     pub(super) fn open_usage_inline_loading(&mut self) {
@@ -128,13 +128,13 @@ impl App {
         // Pricing in $/1M tokens. Anthropic resolves real per-model pricing in
         // refresh_cached_pricing; other providers fall back to the generic
         // defaults cached here.
-        let prompt_price = *self.cached_prompt_price.get_or_insert(15.0);
-        let completion_price = *self.cached_completion_price.get_or_insert(60.0);
-        let cache_read_price = self.cached_cache_read_price;
+        let prompt_price = *self.cost.cached_prompt_price.get_or_insert(15.0);
+        let completion_price = *self.cost.cached_completion_price.get_or_insert(60.0);
+        let cache_read_price = self.cost.cached_cache_read_price;
 
-        let cache_read_tokens = self.streaming_cache_read_tokens.unwrap_or(0);
-        let cache_creation_tokens = self.streaming_cache_creation_tokens.unwrap_or(0);
-        let reported_input_tokens = self.streaming_input_tokens;
+        let cache_read_tokens = self.streaming.streaming_cache_read_tokens.unwrap_or(0);
+        let cache_creation_tokens = self.streaming.streaming_cache_creation_tokens.unwrap_or(0);
+        let reported_input_tokens = self.streaming.streaming_input_tokens;
 
         // Providers report usage with two different conventions:
         //   - Split accounting (Anthropic): `input_tokens` already EXCLUDES the
@@ -158,9 +158,7 @@ impl App {
 
         let prompt_cost = (fresh_input_tokens as f32 * prompt_price) / 1_000_000.0;
         let completion_cost =
-            (self.streaming_output_tokens as f32 * completion_price) / 1_000_000.0;
-        // Cache-read tokens are billed at the (cheaper) cache-read rate when we
-        // know it; otherwise treat them as regular input tokens.
+            (self.streaming.streaming_output_tokens as f32 * completion_price) / 1_000_000.0;
         let cache_read_cost = match cache_read_price {
             Some(price) => (cache_read_tokens as f32 * price) / 1_000_000.0,
             None => (cache_read_tokens as f32 * prompt_price) / 1_000_000.0,
@@ -185,7 +183,7 @@ impl App {
         } else {
             0.0
         };
-        self.total_cost += prompt_cost + completion_cost + cache_read_cost + cache_write_cost;
+        self.cost.total_cost += prompt_cost + completion_cost + cache_read_cost + cache_write_cost;
     }
 
     /// Resolve and cache per-model pricing for the active provider. For
@@ -194,29 +192,29 @@ impl App {
     /// Re-resolves when the active model changes.
     fn refresh_cached_pricing(&mut self, is_anthropic: bool) {
         let model = self.provider.model().to_string();
-        if self.cached_price_model.as_deref() == Some(model.as_str()) {
+        if self.cost.cached_price_model.as_deref() == Some(model.as_str()) {
             return;
         }
 
         if is_anthropic {
             if let Some(estimate) = jcode_provider_core::pricing::anthropic_api_pricing(&model) {
                 let per_mtok = |micros: Option<u64>| micros.map(|m| m as f32 / 1_000_000.0);
-                self.cached_prompt_price = per_mtok(estimate.input_price_per_mtok_micros);
-                self.cached_completion_price = per_mtok(estimate.output_price_per_mtok_micros);
-                self.cached_cache_read_price = per_mtok(estimate.cache_read_price_per_mtok_micros);
-                self.cached_price_model = Some(model);
+                self.cost.cached_prompt_price = per_mtok(estimate.input_price_per_mtok_micros);
+                self.cost.cached_completion_price = per_mtok(estimate.output_price_per_mtok_micros);
+                self.cost.cached_cache_read_price = per_mtok(estimate.cache_read_price_per_mtok_micros);
+                self.cost.cached_price_model = Some(model);
                 return;
             }
         }
 
         // Unknown model: leave existing defaults in place but remember the model
         // so we do not repeatedly attempt resolution for it.
-        self.cached_price_model = Some(model);
+        self.cost.cached_price_model = Some(model);
     }
 
     pub(super) fn compute_streaming_tps(&self) -> Option<f32> {
-        let elapsed_secs = self.streaming_tps_observed_elapsed.as_secs_f32();
-        let total_tokens = self.streaming_tps_observed_output_tokens;
+        let elapsed_secs = self.streaming.streaming_tps_observed_elapsed.as_secs_f32();
+        let total_tokens = self.streaming.streaming_tps_observed_output_tokens;
         if elapsed_secs > 0.1 && total_tokens > 0 {
             Some(total_tokens as f32 / elapsed_secs)
         } else {
