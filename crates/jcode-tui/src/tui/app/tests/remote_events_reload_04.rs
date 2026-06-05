@@ -864,10 +864,10 @@ fn test_anthropic_api_cost_accounts_for_split_cache_tokens() {
 
     // A representative cold turn: most of the prompt is freshly written to cache,
     // a little is read back, and only a small uncached remainder is fresh input.
-    app.streaming_input_tokens = 1_000; // uncached fresh input
-    app.streaming_cache_read_tokens = Some(40_000); // served from cache
-    app.streaming_cache_creation_tokens = Some(100_000); // written to cache (premium)
-    app.streaming_output_tokens = 2_000;
+    app.streaming.streaming_input_tokens = 1_000; // uncached fresh input
+    app.streaming.streaming_cache_read_tokens = Some(40_000); // served from cache
+    app.streaming.streaming_cache_creation_tokens = Some(100_000); // written to cache (premium)
+    app.streaming.streaming_output_tokens = 2_000;
     app.update_cost_impl();
 
     // Expected:
@@ -878,9 +878,9 @@ fn test_anthropic_api_cost_accounts_for_split_cache_tokens() {
     //   total                                = $0.645
     let expected = 0.003 + 0.030 + 0.012 + 0.600;
     assert!(
-        (app.total_cost - expected).abs() < 1e-4,
+        (app.cost.total_cost - expected).abs() < 1e-4,
         "anthropic split-accounting cost should be ~${expected:.4}, got ${:.4}",
-        app.total_cost
+        app.cost.total_cost
     );
 
     if let Some(value) = saved_runtime {
