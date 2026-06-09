@@ -16,6 +16,8 @@ use serde::{Deserialize, Serialize};
 use std::io::{self, IsTerminal};
 use std::path::PathBuf;
 
+pub mod keymap;
+
 #[cfg(any(test, target_os = "macos"))]
 mod macos_launcher;
 #[cfg(any(test, target_os = "macos"))]
