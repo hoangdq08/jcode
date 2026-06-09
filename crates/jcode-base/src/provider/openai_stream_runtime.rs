@@ -1445,8 +1445,16 @@ fn classify_unavailable_model_error(status: StatusCode, body: &str) -> Option<St
 
 /// Check if an error is transient and should be retried
 pub(super) fn is_retryable_error(error_str: &str) -> bool {
-    // Network/connection errors
-    error_str.contains("connection reset")
+    // Shared transport-level classifier first. This covers TLS faults (e.g.
+    // `received fatal alert: BadRecordMac`), DNS failures, connection
+    // resets/aborts, network-unreachable, and HTTP/2 stream/protocol errors.
+    // OpenAI previously maintained its own narrower allowlist that omitted these
+    // TLS terms, so a transient `BadRecordMac` surfaced to the user immediately
+    // (attempt=1, will_retry=false) instead of being retried like every other
+    // provider. Delegating here keeps OpenAI in sync with the shared list.
+    crate::provider::is_transient_transport_error(error_str)
+        // Network/connection errors
+        || error_str.contains("connection reset")
         || error_str.contains("connection closed")
         || error_str.contains("connection refused")
         || error_str.contains("broken pipe")
@@ -1505,6 +1513,22 @@ mod stream_runtime_tests {
         // marker so the retry loop reconnects with the new credentials.
         assert!(is_retryable_error(
             "openai token refreshed, retrying: 401 unauthorized"
+        ));
+    }
+
+    #[test]
+    fn tls_transport_errors_are_retryable() {
+        // Regression: OpenAI's classifier previously omitted TLS transport
+        // faults, so a transient BadRecordMac surfaced to the user immediately
+        // (attempt=1, will_retry=false) instead of being retried.
+        assert!(is_retryable_error(
+            "stream error: io error: received fatal alert: badrecordmac"
+        ));
+        assert!(is_retryable_error("io error: broken pipe (os error 32)"));
+        assert!(is_retryable_error("connection aborted"));
+        // A send-level cause wrapped behind anyhow context (alternate {:#} form).
+        assert!(is_retryable_error(
+            "failed to send request to openai api: error sending request: received fatal alert: badrecordmac"
         ));
     }
 
