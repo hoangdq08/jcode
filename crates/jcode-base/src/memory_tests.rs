@@ -724,3 +724,45 @@ fn hybrid_excludes_superseded_memories() {
         );
     });
 }
+
+#[test]
+fn focus_query_text_strips_noise_and_leads_with_user_intent() {
+    let raw = "\
+<system-reminder>\n# Session Context\nDate: 2026-06-14\n</system-reminder>\n\
+User:\n\
+how do I fix the scroll bug in navigation.rs\n\
+Assistant:\n\
+Let me look at the handler.\n\
+[Tool: read]\n\
+[Result: fn handle_scroll() { ... }]\n\
+Assistant:\n\
+The bug is in the mouse delta calc.";
+
+    let focused = super::focus_query_text(raw);
+
+    // System-reminder block is gone.
+    assert!(!focused.contains("Session Context"), "reminder not stripped: {focused}");
+    assert!(!focused.contains("<system-reminder>"));
+    // Tool noise is gone.
+    assert!(!focused.contains("[Tool:"), "tool marker not stripped: {focused}");
+    assert!(!focused.contains("[Result:"));
+    // Role markers are gone.
+    assert!(!focused.contains("User:"));
+    assert!(!focused.contains("Assistant:"));
+    // Real prose is kept.
+    assert!(focused.contains("scroll bug in navigation.rs"));
+    assert!(focused.contains("mouse delta calc"));
+    // Leads with the latest user intent.
+    assert!(
+        focused.starts_with("how do I fix the scroll bug in navigation.rs"),
+        "should lead with latest user message: {focused}"
+    );
+}
+
+#[test]
+fn focus_query_text_falls_back_when_all_stripped() {
+    let raw = "<system-reminder>\nonly boilerplate\n</system-reminder>\n[Tool: read]";
+    let focused = super::focus_query_text(raw);
+    // Nothing substantive survives -> fall back to raw rather than empty.
+    assert_eq!(focused, raw);
+}
