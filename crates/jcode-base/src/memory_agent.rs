@@ -261,6 +261,27 @@ fn relevance_context_signature(context: &str) -> String {
         .join("\n")
 }
 
+/// Decide whether to run the expensive Mode-2 listwise rerank this turn.
+///
+/// - First rerank of a session (`last_rerank_turn == None`) always fires.
+/// - A topic change always fires (don't delay a genuine topic jump).
+/// - Otherwise the cadence floor applies: fire only if at least `cadence` turns
+///   have passed since the last rerank. `cadence <= 1` means every turn.
+fn should_run_rerank(
+    turn_count: usize,
+    last_rerank_turn: Option<usize>,
+    cadence: usize,
+    topic_changed: bool,
+) -> bool {
+    if topic_changed {
+        return true;
+    }
+    match last_rerank_turn {
+        None => true,
+        Some(last) => cadence <= 1 || turn_count.saturating_sub(last) >= cadence,
+    }
+}
+
 fn bump_turn_stat() {
     if let Ok(mut stats) = MEMORY_AGENT_STATS.lock() {
         stats.turns_processed = stats.turns_processed.saturating_add(1);
@@ -293,6 +314,9 @@ struct SessionState {
     turn_count: usize,
     /// Turn count since last extraction for this session
     turns_since_extraction: usize,
+    /// `turn_count` at which the Mode-2 listwise rerank last ran, for the
+    /// cadence floor (rerank at most once per `memory_rerank_cadence` turns).
+    last_rerank_turn: Option<usize>,
 }
 
 /// The persistent memory agent state
@@ -464,11 +488,13 @@ impl MemoryAgent {
             };
 
         // Check for topic change (comparing against this session's last embedding)
+        let mut topic_changed = false;
         {
             let ss = self.session_state(session_id);
             if let Some(ref last_emb) = ss.last_context_embedding {
                 let similarity = embedding::cosine_similarity(&context_embedding, last_emb);
                 if similarity < TOPIC_CHANGE_THRESHOLD {
+                    topic_changed = true;
                     crate::logging::info(&format!(
                         "[{}] Topic change detected (sim={:.2}), resetting session memory state",
                         session_id, similarity
@@ -592,13 +618,39 @@ impl MemoryAgent {
 
         let candidate_ids: Vec<String> = new_candidates.iter().map(|(e, _)| e.id.clone()).collect();
 
+        // Cadence gate for the EXPENSIVE Mode-2 rerank: run the listwise LLM
+        // rerank at most once per `memory_rerank_cadence` turns. Skipped turns
+        // still surface memories via hybrid order (recall@5 ~0.53 vs ~0.79 on a
+        // reranked turn) - never blind. A topic change or the first rerank of a
+        // session always fires, so genuine topic jumps are never delayed.
+        let should_rerank = {
+            let cadence = crate::config::config().agents.memory_rerank_cadence;
+            let ss = self.session_state(session_id);
+            should_run_rerank(ss.turn_count, ss.last_rerank_turn, cadence, topic_changed)
+        };
+
         let relevant = if memory::memory_sidecar_enabled()
             && let Some(sidecar) = self.sidecar.as_ref()
         {
-            let reranked =
-                crate::memory_rerank::rerank_candidates(sidecar, &focused_query, new_candidates)
-                    .await;
-            reranked.into_iter().take(MAX_MEMORIES_PER_TURN).collect()
+            if should_rerank {
+                let reranked = crate::memory_rerank::rerank_candidates(
+                    sidecar,
+                    &focused_query,
+                    new_candidates,
+                )
+                .await;
+                let turn = self.session_state(session_id).turn_count;
+                self.session_state(session_id).last_rerank_turn = Some(turn);
+                reranked.into_iter().take(MAX_MEMORIES_PER_TURN).collect()
+            } else {
+                // Cadence-gated turn: fall back to hybrid-ordered surfacing (no
+                // LLM call) so memory still surfaces, just not LLM-reranked.
+                crate::logging::info(&format!(
+                    "[{}] Memory rerank gated by cadence; using hybrid order this turn",
+                    session_id
+                ));
+                self.select_top_candidates_no_sidecar(session_id, new_candidates)
+            }
         } else {
             self.select_top_candidates_no_sidecar(session_id, new_candidates)
         };

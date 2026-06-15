@@ -112,3 +112,23 @@ fn apply_confidence_updates_batches_boost_and_decay() {
         std::panic::resume_unwind(p);
     }
 }
+
+#[test]
+fn should_run_rerank_cadence_and_overrides() {
+    // First rerank of a session always fires.
+    assert!(should_run_rerank(0, None, 3, false));
+    assert!(should_run_rerank(5, None, 3, false));
+
+    // Topic change always fires, even mid-cadence.
+    assert!(should_run_rerank(4, Some(3), 3, true));
+
+    // Cadence floor: with cadence=3, must wait 3 turns since last rerank.
+    assert!(!should_run_rerank(4, Some(3), 3, false)); // 1 turn since -> gated
+    assert!(!should_run_rerank(5, Some(3), 3, false)); // 2 turns since -> gated
+    assert!(should_run_rerank(6, Some(3), 3, false)); // 3 turns since -> fire
+    assert!(should_run_rerank(10, Some(3), 3, false)); // well past -> fire
+
+    // cadence <= 1 disables gating (every turn fires).
+    assert!(should_run_rerank(4, Some(3), 1, false));
+    assert!(should_run_rerank(4, Some(3), 0, false));
+}
