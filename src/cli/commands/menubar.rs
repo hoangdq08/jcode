@@ -162,11 +162,13 @@ mod macos {
     use objc2::runtime::AnyObject;
     use objc2::{MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
     use objc2_app_kit::{
-        NSApplication, NSApplicationActivationPolicy, NSCellImagePosition, NSFont,
-        NSFontWeightRegular, NSImage, NSMenu, NSMenuItem, NSStatusBar, NSStatusItem,
-        NSVariableStatusItemLength,
+        NSApplication, NSApplicationActivationPolicy, NSCellImagePosition, NSColor, NSFont,
+        NSFontAttributeName, NSForegroundColorAttributeName, NSFontWeightRegular, NSImage, NSMenu,
+        NSMenuItem, NSStatusBar, NSStatusItem, NSVariableStatusItemLength,
     };
-    use objc2_foundation::{NSObject, NSString, NSUserDefaults, ns_string};
+    use objc2_foundation::{
+        NSAttributedString, NSDictionary, NSObject, NSString, NSUserDefaults, ns_string,
+    };
 
     /// Poll interval for refreshing the counts (milliseconds).
     const REFRESH_INTERVAL_MS: u64 = 1000;
@@ -267,6 +269,11 @@ mod macos {
         // wide status items first whenever the frontmost app's menus need the
         // space, which is why a verbose title appears and disappears depending
         // on which app is focused.
+        let menu_bar_font_size = NSFont::menuBarFontOfSize(0.0).pointSize();
+        let title_font =
+            NSFont::monospacedDigitSystemFontOfSize_weight(menu_bar_font_size, unsafe {
+                NSFontWeightRegular
+            });
         if let Some(button) = status_item.button(mtm) {
             let icon = NSImage::imageWithSystemSymbolName_accessibilityDescription(
                 ns_string!("terminal"),
@@ -278,11 +285,7 @@ mod macos {
                 // Title on the left, icon on the right.
                 button.setImagePosition(NSCellImagePosition::ImageTrailing);
             }
-            let menu_bar_font_size = NSFont::menuBarFontOfSize(0.0).pointSize();
-            let font = NSFont::monospacedDigitSystemFontOfSize_weight(menu_bar_font_size, unsafe {
-                NSFontWeightRegular
-            });
-            button.setFont(Some(&font));
+            button.setFont(Some(&title_font));
         }
 
         // The target of menu item actions. NSMenuItem holds its target weakly,
@@ -330,7 +333,18 @@ mod macos {
                 streaming: sessions.iter().filter(|s| s.streaming).count(),
             };
             if let Some(button) = status_item.button(mtm) {
-                button.setTitle(&NSString::from_str(&format_menubar_title(counts)));
+                let title = format_menubar_title(counts);
+                let attributed = attributed_title(&title, &title_font, counts.streaming > 0);
+                button.setAttributedTitle(&attributed);
+                // Tint the template icon to match: accent green while any
+                // session is streaming, default (nil) otherwise so it follows
+                // the menu bar's normal appearance.
+                let tint: Option<Retained<NSColor>> = if counts.streaming > 0 {
+                    Some(streaming_color())
+                } else {
+                    None
+                };
+                button.setContentTintColor(tint.as_deref());
             }
             summary_item.setTitle(&NSString::from_str(&format_menubar_summary(counts)));
 
@@ -349,6 +363,39 @@ mod macos {
 
         // Run the Cocoa event loop. `terminate:` (the Quit item) exits the process.
         app.run();
+    }
+
+    /// Color used for the count (and icon tint) while any session is actively
+    /// streaming a response. A slightly muted system green that reads well in
+    /// both light and dark menu bars.
+    fn streaming_color() -> Retained<NSColor> {
+        NSColor::systemGreenColor()
+    }
+
+    /// Build the colored menu bar title. While streaming, the count is drawn in
+    /// the streaming color; when idle it uses the standard menu bar text color
+    /// (secondary, so the static total reads as quiet status rather than an
+    /// alert). The monospaced-digit font is applied so the width stays stable.
+    fn attributed_title(
+        title: &str,
+        font: &NSFont,
+        streaming: bool,
+    ) -> Retained<NSAttributedString> {
+        let string = NSString::from_str(title);
+        let color = if streaming {
+            streaming_color()
+        } else {
+            NSColor::secondaryLabelColor()
+        };
+        let keys: [&NSString; 2] =
+            [unsafe { NSForegroundColorAttributeName }, unsafe {
+                NSFontAttributeName
+            }];
+        let color_obj: &AnyObject = &color;
+        let font_obj: &AnyObject = font;
+        let values: [&AnyObject; 2] = [color_obj, font_obj];
+        let attrs = NSDictionary::from_slices(&keys, &values);
+        unsafe { NSAttributedString::new_with_attributes(&string, &attrs) }
     }
 
     /// Replace the dynamic session rows between the summary header (index 0)
