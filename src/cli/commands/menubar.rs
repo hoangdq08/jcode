@@ -173,6 +173,63 @@ mod macos {
     /// Poll interval for refreshing the counts (milliseconds).
     const REFRESH_INTERVAL_MS: u64 = 1000;
 
+    /// A held singleton lock for the menu bar helper. Keeps the lock file open
+    /// for the whole process lifetime; the kernel releases the advisory lock
+    /// automatically when the process exits (including via `terminate:`).
+    struct SingletonLock {
+        #[allow(dead_code)]
+        file: std::fs::File,
+    }
+
+    /// Acquire the exclusive, system-wide "only one menu bar helper" lock.
+    ///
+    /// Uses a non-blocking `flock(LOCK_EX | LOCK_NB)` on `~/.jcode/menubar.lock`.
+    /// Returns `Some(guard)` if we are the sole helper, or `None` if another
+    /// live helper already holds the lock (in which case the caller should exit
+    /// without creating a second status item). On any unexpected error we fall
+    /// back to `Some` so a transient filesystem issue never permanently hides
+    /// the indicator.
+    fn acquire_singleton_lock() -> Option<SingletonLock> {
+        use std::os::unix::io::AsRawFd;
+
+        let dir = crate::storage::jcode_dir().ok()?;
+        let lock_path = dir.join("menubar.lock");
+        let file = match std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(false)
+            .open(&lock_path)
+        {
+            Ok(file) => file,
+            // If we cannot open the lock file at all, don't block the indicator.
+            Err(_) => return Some(SingletonLock { file: dummy_file()? }),
+        };
+
+        // SAFETY: `flock` on a valid fd. LOCK_NB makes this non-blocking.
+        let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+        if rc == 0 {
+            Some(SingletonLock { file })
+        } else {
+            let err = std::io::Error::last_os_error();
+            match err.raw_os_error() {
+                // Another helper holds the lock: we are the duplicate, bail out.
+                Some(libc::EWOULDBLOCK) => None,
+                // Unexpected error: don't permanently suppress the indicator.
+                _ => Some(SingletonLock { file }),
+            }
+        }
+    }
+
+    /// Open `/dev/null` as a stand-in lock handle for the rare case where the
+    /// real lock file cannot be created. Returns `None` only if even that
+    /// fails, in which case the caller proceeds without a guard.
+    fn dummy_file() -> Option<std::fs::File> {
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open("/dev/null")
+            .ok()
+    }
+
     /// Autosave name under which macOS persists the status item's position.
     const STATUS_ITEM_AUTOSAVE: &str = "jcode-menubar";
 
@@ -234,6 +291,20 @@ mod macos {
     pub(super) fn run_status_item_app() {
         let mtm = MainThreadMarker::new()
             .expect("jcode menubar must run on the main thread (the process entry point)");
+
+        // Enforce a single live menu bar helper. The pid-file fast path in
+        // `ensure_menubar_helper_running` is best-effort and can race or be
+        // bypassed entirely (e.g. a self-dev `target/.../jcode` and the
+        // installed `~/.local/bin/jcode` both spawn helpers, or a reload
+        // re-runs startup). Without a hard guard each extra helper creates its
+        // own NSStatusItem, so the user ends up with a duplicate menu bar item
+        // per spawn. Acquire an exclusive advisory lock here; if another helper
+        // already holds it, exit immediately before creating any UI. The
+        // returned guard must stay alive for the whole process lifetime (it is
+        // held by `_singleton_lock` until `app.run()` is terminated).
+        let Some(_singleton_lock) = acquire_singleton_lock() else {
+            return;
+        };
 
         let app = NSApplication::sharedApplication(mtm);
         // Accessory: no Dock icon, no main menu, just a menu bar item.
@@ -373,9 +444,13 @@ mod macos {
     }
 
     /// Build the colored menu bar title. While streaming, the count is drawn in
-    /// the streaming color; when idle it uses the standard menu bar text color
-    /// (secondary, so the static total reads as quiet status rather than an
-    /// alert). The monospaced-digit font is applied so the width stays stable.
+    /// the streaming color; when idle it uses the primary dynamic label color so
+    /// it keeps full contrast against whatever the menu bar background is. (The
+    /// previous secondary/"quiet" gray was nearly invisible on a black/dark menu
+    /// bar.) `labelColor` is a dynamic system color, so AppKit resolves it at
+    /// draw time using the status item button's effective appearance - white-ish
+    /// on a dark menu bar, dark on a light one. The monospaced-digit font is
+    /// applied so the width stays stable.
     fn attributed_title(
         title: &str,
         font: &NSFont,
@@ -385,7 +460,7 @@ mod macos {
         let color = if streaming {
             streaming_color()
         } else {
-            NSColor::secondaryLabelColor()
+            NSColor::labelColor()
         };
         let keys: [&NSString; 2] =
             [unsafe { NSForegroundColorAttributeName }, unsafe {
