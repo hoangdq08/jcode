@@ -3439,6 +3439,7 @@ dependencies = [
  "jcode-protocol",
  "jcode-provider-core",
  "jcode-provider-metadata",
+ "jcode-scrollwm",
  "jcode-selfdev-types",
  "jcode-session-types",
  "jcode-setup-hints",
