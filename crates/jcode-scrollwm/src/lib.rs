@@ -478,15 +478,17 @@ mod loopback_tests {
     /// connection, so we can exercise the real connect/write/read path without a
     /// live ScrollWM. Returns the socket path; the listener thread self-cleans.
     fn spawn_echo_server(reply: &'static str) -> PathBuf {
-        let dir = std::env::temp_dir();
-        let path = dir.join(format!(
-            "jcode-scrollwm-loopback-{}-{}.sock",
+        // Keep the path SHORT: macOS sockaddr_un.sun_path is capped at 104
+        // bytes, and the default temp dir (/var/folders/.../T/) is already long.
+        // Use /tmp + a process-unique atomic counter so parallel tests never
+        // collide and never overflow the limit.
+        use std::sync::atomic::{AtomicU32, Ordering};
+        static COUNTER: AtomicU32 = AtomicU32::new(0);
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let path = PathBuf::from(format!(
+            "/tmp/jcode-sw-lb-{}-{}.sock",
             std::process::id(),
-            // cheap unique-ish suffix
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
+            n
         ));
         let _ = std::fs::remove_file(&path);
         let listener = UnixListener::bind(&path).expect("bind loopback socket");

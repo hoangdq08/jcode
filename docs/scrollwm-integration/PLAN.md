@@ -5,6 +5,19 @@ yours: `1jehuang/jcode` (Rust TUI agent) and `1jehuang/scrollwm` (Swift macOS
 scrolling WM). They already ship together in the `1jehuang/homebrew-jstack` tap
 via a `jstack` bundle cask.
 
+## Status (all workstreams shipped)
+
+| WS | What | State |
+|----|------|-------|
+| WS1 | Onboarding "Searched, not found" list + scrolling | ✅ jcode, tested + visually verified |
+| WS2 | Onboarding "Set up ScrollWM?" install opt-in | ✅ jcode, tested + visually verified |
+| WS3 | `jcode-scrollwm` control client crate | ✅ jcode, 9 tests incl loopback; live handshake verified |
+| WS4 | Headed swarm spawn -> ScrollWM focus (opt-in) | ✅ jcode, config + env + tests |
+| WS5 | ScrollWM `version` handshake + `INTEGRATION.md` + conformance test | ✅ scrollwm repo |
+
+The canonical wire contract is `scrollwm/docs/INTEGRATION.md`; the jcode-side
+pointer is `CONTRACT.md` in this folder.
+
 ## The vision
 
 ```mermaid
