@@ -646,11 +646,25 @@ pub enum OnboardingWelcomeKind {
     /// walking the user through them one at a time (a yes/no prompt per login).
     /// When `None`, there was nothing to import and the card points the user at
     /// the provider picker.
-    Login { import: Option<LoginImportPrompt> },
+    Login {
+        import: Option<LoginImportPrompt>,
+        /// Credential families we probed but did not find, rendered as a
+        /// scrollable "Searched, not found" panel beneath the decision row.
+        not_found: Vec<NotFoundRow>,
+        /// Current scroll offset (in lines) into the not-found panel.
+        not_found_scroll: u16,
+    },
     /// Ask the user whether to log in to OpenAI (no detected imports). A
     /// highlightable Yes/No selector; `yes_highlighted` reflects the current
     /// choice. Yes starts the OpenAI sign-in, No opens the provider picker.
-    LoginOpenAi { yes_highlighted: bool },
+    LoginOpenAi {
+        yes_highlighted: bool,
+        /// Credential families we probed but did not find. On a fresh install
+        /// with no detected logins this is the full searched set.
+        not_found: Vec<NotFoundRow>,
+        /// Current scroll offset (in lines) into the not-found panel.
+        not_found_scroll: u16,
+    },
     /// "Continue where you left off in <cli>?" with a highlightable Yes/No
     /// selector and a live decision countdown (seconds remaining).
     ContinuePrompt {
@@ -660,6 +674,16 @@ pub enum OnboardingWelcomeKind {
     },
     /// The starter prompt-suggestion cards (default).
     Suggestions,
+}
+
+/// One row in the "Searched, not found" onboarding panel: a credential source
+/// jcode probed during first-run detection but did not find.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NotFoundRow {
+    /// Human label (e.g. "Claude Code", "Cursor").
+    pub label: String,
+    /// Representative path that was probed (e.g. "~/.cursor/auth.json").
+    pub path: String,
 }
 
 /// Render-friendly snapshot of the current step in the per-candidate login

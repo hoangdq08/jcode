@@ -71,7 +71,7 @@ fn login_welcome_kind_shows_first_import_candidate() {
         };
     }
     match app.onboarding_welcome_kind() {
-        OnboardingWelcomeKind::Login { import: Some(prompt) } => {
+        OnboardingWelcomeKind::Login { import: Some(prompt), .. } => {
             assert_eq!(prompt.provider_summary, "OpenAI/Codex");
             assert_eq!(prompt.source_name, "Codex auth.json");
             assert_eq!(prompt.position, 1);
@@ -166,7 +166,8 @@ fn login_openai_phase_is_default_when_no_imports() {
         assert!(matches!(
             app.onboarding_welcome_kind(),
             OnboardingWelcomeKind::LoginOpenAi {
-                yes_highlighted: true
+                yes_highlighted: true,
+                ..
             }
         ));
     });
@@ -705,4 +706,117 @@ fn remote_post_login_validation_waits_for_catalog_refresh() {
         app.remote_model_catalog_generation = 4;
         assert!(app.onboarding_pending_validation_ready_to_fire());
     });
+}
+
+#[test]
+fn login_welcome_kind_carries_not_found_rows() {
+    use crate::external_auth::{AuthSearchTarget, ExternalAuthReviewCandidate};
+    use crate::tui::OnboardingWelcomeKind;
+    use crate::tui::app::onboarding_flow::ImportReview;
+
+    let mut app = create_test_app();
+    app.onboarding_flow = None;
+    app.begin_onboarding_flow_at_login();
+
+    // Arm a one-candidate import walkthrough and inject a not-found list.
+    let review =
+        ImportReview::new(vec![ExternalAuthReviewCandidate::fixture("Cursor", "Cursor")]).unwrap();
+    if let Some(flow) = app.onboarding_flow.as_mut() {
+        flow.phase = OnboardingPhase::Login {
+            import: Some(review),
+        };
+        flow.login_not_found = vec![
+            AuthSearchTarget {
+                family: "codex",
+                label: "Codex".to_string(),
+                path: "~/.codex/auth.json".to_string(),
+                present: false,
+            },
+            AuthSearchTarget {
+                family: "gemini_cli",
+                label: "Gemini CLI".to_string(),
+                path: "~/.gemini/oauth_creds.json".to_string(),
+                present: false,
+            },
+        ];
+    }
+
+    match app.onboarding_welcome_kind() {
+        OnboardingWelcomeKind::Login { not_found, .. } => {
+            let labels: Vec<&str> = not_found.iter().map(|r| r.label.as_str()).collect();
+            assert_eq!(labels, vec!["Codex", "Gemini CLI"]);
+        }
+        other => panic!("expected Login welcome, got {other:?}"),
+    }
+}
+
+#[test]
+fn not_found_panel_scrolls_with_pgdn_and_clamps() {
+    use crate::external_auth::AuthSearchTarget;
+    use crate::tui::app::onboarding_flow::OnboardingFlow;
+
+    let mut app = create_test_app();
+    // LoginOpenAi phase (no detected imports) with a long not-found list so the
+    // panel overflows its visible window and becomes scrollable. 12 rows with a
+    // 5-row visible window gives a max scroll offset of 7.
+    let targets: Vec<AuthSearchTarget> = (0..12)
+        .map(|i| AuthSearchTarget {
+            family: "x",
+            label: format!("Source {i}"),
+            path: format!("~/path/{i}"),
+            present: false,
+        })
+        .collect();
+    let mut flow = OnboardingFlow::begin_at_login_with_not_found(None, targets);
+    flow.phase = OnboardingPhase::LoginOpenAi {
+        yes_highlighted: true,
+    };
+    app.onboarding_flow = Some(flow);
+    assert_eq!(app.onboarding_notfound_scroll, 0);
+
+    // PgDn scrolls down by the step (3).
+    assert!(app.handle_onboarding_continue_prompt_key(KeyCode::PageDown));
+    assert_eq!(app.onboarding_notfound_scroll, 3);
+    assert!(app.handle_onboarding_continue_prompt_key(KeyCode::PageDown));
+    assert_eq!(app.onboarding_notfound_scroll, 6);
+
+    // Next PgDn clamps to the max offset (12 rows - 5 visible = 7).
+    assert!(app.handle_onboarding_continue_prompt_key(KeyCode::PageDown));
+    assert_eq!(app.onboarding_notfound_scroll, 7);
+
+    // Already at the bottom: PgDn no longer consumes the key (falls through).
+    assert!(!app.handle_onboarding_continue_prompt_key(KeyCode::PageDown));
+
+    // PgUp scrolls back up and eventually clamps at 0.
+    assert!(app.handle_onboarding_continue_prompt_key(KeyCode::PageUp));
+    assert_eq!(app.onboarding_notfound_scroll, 4);
+    assert!(app.handle_onboarding_continue_prompt_key(KeyCode::PageUp));
+    assert!(app.handle_onboarding_continue_prompt_key(KeyCode::PageUp));
+    assert_eq!(app.onboarding_notfound_scroll, 0);
+    assert!(!app.handle_onboarding_continue_prompt_key(KeyCode::PageUp));
+}
+
+#[test]
+fn not_found_panel_no_scroll_when_list_fits() {
+    use crate::external_auth::AuthSearchTarget;
+    use crate::tui::app::onboarding_flow::OnboardingFlow;
+
+    let mut app = create_test_app();
+    // Only 3 rows: fits within the visible window, so PgDn is a no-op and the
+    // key falls through (not consumed) for other handlers.
+    let targets: Vec<AuthSearchTarget> = (0..3)
+        .map(|i| AuthSearchTarget {
+            family: "x",
+            label: format!("Source {i}"),
+            path: format!("~/path/{i}"),
+            present: false,
+        })
+        .collect();
+    let mut flow = OnboardingFlow::begin_at_login_with_not_found(None, targets);
+    flow.phase = OnboardingPhase::LoginOpenAi {
+        yes_highlighted: true,
+    };
+    app.onboarding_flow = Some(flow);
+    assert!(!app.handle_onboarding_continue_prompt_key(KeyCode::PageDown));
+    assert_eq!(app.onboarding_notfound_scroll, 0);
 }

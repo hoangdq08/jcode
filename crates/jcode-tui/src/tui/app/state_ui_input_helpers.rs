@@ -1151,6 +1151,21 @@ impl App {
     pub fn onboarding_welcome_kind(&self) -> crate::tui::OnboardingWelcomeKind {
         use crate::tui::OnboardingWelcomeKind;
         use crate::tui::app::onboarding_flow::OnboardingPhase;
+        // Families we probed but did not find, shared across the login phases.
+        let not_found_rows: Vec<crate::tui::NotFoundRow> = self
+            .onboarding_flow
+            .as_ref()
+            .map(|flow| {
+                flow.login_not_found
+                    .iter()
+                    .map(|t| crate::tui::NotFoundRow {
+                        label: t.label.clone(),
+                        path: t.path.clone(),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let not_found_scroll = self.onboarding_notfound_scroll;
         match self.onboarding_phase() {
             Some(OnboardingPhase::Login { import }) => {
                 let prompt = import.as_ref().and_then(|review| {
@@ -1165,11 +1180,17 @@ impl App {
                             seconds_left: review.seconds_remaining(),
                         })
                 });
-                OnboardingWelcomeKind::Login { import: prompt }
+                OnboardingWelcomeKind::Login {
+                    import: prompt,
+                    not_found: not_found_rows,
+                    not_found_scroll,
+                }
             }
             Some(OnboardingPhase::LoginOpenAi { yes_highlighted }) => {
                 OnboardingWelcomeKind::LoginOpenAi {
                     yes_highlighted: *yes_highlighted,
+                    not_found: not_found_rows,
+                    not_found_scroll,
                 }
             }
             Some(OnboardingPhase::ModelSelect) => OnboardingWelcomeKind::Suggestions,

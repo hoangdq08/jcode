@@ -107,3 +107,63 @@ fn onboarding_welcome_centers_within_tall_area() {
         "content should be vertically padded from the top:\n{text}"
     );
 }
+
+#[test]
+fn onboarding_login_card_renders_searched_not_found_panel() {
+    use crate::tui::{NotFoundRow, OnboardingWelcomeKind};
+
+    let not_found = vec![
+        NotFoundRow {
+            label: "Codex".to_string(),
+            path: "~/.codex/auth.json".to_string(),
+        },
+        NotFoundRow {
+            label: "Cursor".to_string(),
+            path: "~/.cursor/auth.json".to_string(),
+        },
+    ];
+    let state = TestState {
+        onboarding_preview: true,
+        onboarding_welcome_kind: Some(OnboardingWelcomeKind::LoginOpenAi {
+            yes_highlighted: true,
+            not_found,
+            not_found_scroll: 0,
+        }),
+        ..Default::default()
+    };
+    let text = render_onboarding(&state, 80, 40);
+    assert!(
+        text.contains("Searched, not found"),
+        "should render the not-found header:\n{text}"
+    );
+    assert!(
+        text.contains("Codex") && text.contains("Cursor"),
+        "should list the absent sources:\n{text}"
+    );
+}
+
+#[test]
+fn onboarding_not_found_panel_shows_scroll_affordance_when_overflowing() {
+    use crate::tui::{NotFoundRow, OnboardingWelcomeKind};
+
+    let not_found: Vec<NotFoundRow> = (0..9)
+        .map(|i| NotFoundRow {
+            label: format!("Source {i}"),
+            path: format!("~/path/{i}"),
+        })
+        .collect();
+    let state = TestState {
+        onboarding_preview: true,
+        onboarding_welcome_kind: Some(OnboardingWelcomeKind::LoginOpenAi {
+            yes_highlighted: true,
+            not_found,
+            not_found_scroll: 0,
+        }),
+        ..Default::default()
+    };
+    let text = render_onboarding(&state, 80, 44);
+    assert!(
+        text.contains("more") && text.contains("scroll"),
+        "overflowing panel should show a scroll affordance:\n{text}"
+    );
+}

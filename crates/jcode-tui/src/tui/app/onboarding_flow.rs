@@ -249,6 +249,12 @@ impl OnboardingPendingValidation {
 #[derive(Clone, Debug)]
 pub(crate) struct OnboardingFlow {
     pub(crate) phase: OnboardingPhase,
+    /// Credential families we probed during first-run detection but did not
+    /// find. Surfaced as a "Searched, not found" panel beneath the login
+    /// decision rows (both the per-candidate import walkthrough and the
+    /// "Log in to OpenAI?" prompt where nothing was found at all). Empty when
+    /// detection was skipped or every probed source was present.
+    pub(crate) login_not_found: Vec<crate::external_auth::AuthSearchTarget>,
 }
 
 impl OnboardingFlow {
@@ -258,6 +264,7 @@ impl OnboardingFlow {
     pub(crate) fn begin() -> Self {
         Self {
             phase: OnboardingPhase::ModelSelect,
+            login_not_found: Vec::new(),
         }
     }
 
@@ -267,6 +274,16 @@ impl OnboardingFlow {
     /// simple "Log in to OpenAI?" Yes/No instead of dropping straight to the
     /// provider picker.
     pub(crate) fn begin_at_login(import: Option<ImportReview>) -> Self {
+        Self::begin_at_login_with_not_found(import, Vec::new())
+    }
+
+    /// Like [`OnboardingFlow::begin_at_login`], but also records the probed
+    /// credential families that were absent, for the "Searched, not found"
+    /// panel.
+    pub(crate) fn begin_at_login_with_not_found(
+        import: Option<ImportReview>,
+        login_not_found: Vec<crate::external_auth::AuthSearchTarget>,
+    ) -> Self {
         let phase = match import {
             Some(review) => OnboardingPhase::Login {
                 import: Some(review),
@@ -275,7 +292,10 @@ impl OnboardingFlow {
                 yes_highlighted: true,
             },
         };
-        Self { phase }
+        Self {
+            phase,
+            login_not_found,
+        }
     }
 
     /// Whether the flow is actively driving the UI.
@@ -365,6 +385,7 @@ mod tests {
     fn done_phase_is_inactive() {
         let flow = OnboardingFlow {
             phase: OnboardingPhase::Done,
+            login_not_found: Vec::new(),
         };
         assert!(!flow.is_active());
     }
@@ -378,6 +399,7 @@ mod tests {
                 yes_highlighted: true,
                 shown_at: past,
             },
+            login_not_found: Vec::new(),
         };
         // The continue prompt now shares the longer DECISION_TIMEOUT with the
         // import and telemetry prompts (not the short AUTO_ADVANCE).
@@ -393,6 +415,7 @@ mod tests {
                 yes_highlighted: true,
                 shown_at: Instant::now(),
             },
+            login_not_found: Vec::new(),
         };
         let remaining = flow.decision_seconds_remaining().unwrap();
         assert!(

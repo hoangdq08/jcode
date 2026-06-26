@@ -13,6 +13,9 @@ use crossterm::event::KeyCode;
 use std::cell::RefCell;
 use std::time::Instant;
 
+/// Lines scrolled per PgUp/PgDn in the "Searched, not found" onboarding panel.
+const NOT_FOUND_SCROLL_STEP: i32 = 3;
+
 impl App {
     /// Whether the guided onboarding flow is currently driving the UI.
     pub(super) fn onboarding_flow_active(&self) -> bool {
@@ -164,18 +167,30 @@ impl App {
             return;
         }
         // Detect importable external logins and, if any, build a per-candidate
-        // yes/no walkthrough rendered by the onboarding welcome screen.
-        let import = match crate::external_auth::pending_external_auth_review_candidates() {
-            Ok(candidates) => ImportReview::new(candidates),
+        // yes/no walkthrough rendered by the onboarding welcome screen. The
+        // search report also carries the families we probed but did not find, so
+        // the card can show a "Searched, not found" panel beneath the decision.
+        let (import, login_not_found) = match crate::external_auth::external_auth_search_report() {
+            Ok(report) => {
+                let not_found = report
+                    .not_found()
+                    .into_iter()
+                    .cloned()
+                    .collect::<Vec<_>>();
+                (ImportReview::new(report.found), not_found)
+            }
             Err(err) => {
                 crate::logging::error(&format!(
                     "onboarding: failed to inspect external login sources: {err}"
                 ));
-                None
+                (None, Vec::new())
             }
         };
         let had_imports = import.is_some();
-        self.onboarding_flow = Some(OnboardingFlow::begin_at_login(import));
+        self.onboarding_flow = Some(OnboardingFlow::begin_at_login_with_not_found(
+            import,
+            login_not_found,
+        ));
         // The login prompt is rendered by the onboarding welcome screen
         // (`onboarding_welcome_kind`) so it survives in remote mode.
         if had_imports {
@@ -296,6 +311,29 @@ impl App {
     ///     highlighted default (Yes -> OpenAI sign-in, No -> provider picker).
     /// Returns true if the key was consumed.
     pub(super) fn handle_onboarding_continue_prompt_key(&mut self, code: KeyCode) -> bool {
+        // The login decision cards can show a scrollable "Searched, not found"
+        // panel beneath the Yes/No row. PgUp/PgDn scroll it without disturbing
+        // the highlighted choice (which uses h/l/j/k/arrows). These keys are a
+        // no-op (and fall through) when no overflowing not-found list is shown.
+        if matches!(
+            self.onboarding_phase(),
+            Some(OnboardingPhase::Login { .. }) | Some(OnboardingPhase::LoginOpenAi { .. })
+        ) && self.inline_interactive_state.is_none()
+        {
+            match code {
+                KeyCode::PageDown => {
+                    if self.onboarding_scroll_not_found(NOT_FOUND_SCROLL_STEP) {
+                        return true;
+                    }
+                }
+                KeyCode::PageUp => {
+                    if self.onboarding_scroll_not_found(-NOT_FOUND_SCROLL_STEP) {
+                        return true;
+                    }
+                }
+                _ => {}
+            }
+        }
         match self.onboarding_phase() {
             Some(OnboardingPhase::Login { import }) => {
                 // No detected imports remaining: this is the recovery fallback
@@ -418,6 +456,9 @@ impl App {
         // Mutate the live review in place, and report whether the walkthrough
         // finished so we can kick off the import outside the borrow.
         let mut finished = false;
+        // Whether this key advanced to the next candidate (committed a row), so
+        // we can reset the not-found scroll only on a real advance.
+        let mut advanced = false;
         {
             let Some(review) = self.onboarding_import_review_mut() else {
                 return false;
@@ -433,13 +474,16 @@ impl App {
                 KeyCode::Char('y') | KeyCode::Char('Y') => {
                     review.set_yes(true);
                     finished = review.commit_current();
+                    advanced = true;
                 }
                 KeyCode::Char('n') | KeyCode::Char('N') => {
                     review.set_yes(false);
                     finished = review.commit_current();
+                    advanced = true;
                 }
                 KeyCode::Enter | KeyCode::Char(' ') => {
                     finished = review.commit_current();
+                    advanced = true;
                 }
                 _ => return false,
             }
@@ -447,9 +491,49 @@ impl App {
         if finished {
             self.onboarding_finish_import_review();
         } else {
+            if advanced {
+                // Advancing to the next candidate restarts the not-found panel
+                // at the top so each decision row begins from the same place.
+                self.reset_onboarding_not_found_scroll();
+            }
             self.update_onboarding_import_review_status();
         }
         true
+    }
+
+    /// Number of "Searched, not found" rows for the active login flow (0 when
+    /// there is no flow or nothing was probed/absent).
+    fn onboarding_not_found_len(&self) -> usize {
+        self.onboarding_flow
+            .as_ref()
+            .map(|flow| flow.login_not_found.len())
+            .unwrap_or(0)
+    }
+
+    /// Scroll the not-found panel by `delta` lines (positive = down), clamped to
+    /// the panel's scrollable range. Returns `true` if the offset changed (the
+    /// key was consumed), `false` when the list doesn't overflow or is already
+    /// at the requested edge (so the key can fall through to other handlers).
+    fn onboarding_scroll_not_found(&mut self, delta: i32) -> bool {
+        let total = self.onboarding_not_found_len();
+        let current = self.onboarding_notfound_scroll;
+        let raw = (current as i32 + delta).max(0);
+        let clamped = crate::tui::ui::onboarding::clamp_not_found_scroll(
+            total,
+            raw.min(u16::MAX as i32) as u16,
+        );
+        if clamped == current {
+            return false;
+        }
+        self.onboarding_notfound_scroll = clamped;
+        true
+    }
+
+    /// Reset the not-found scroll offset to the top. Called whenever the login
+    /// decision row advances or the login phase (re)starts so each decision
+    /// begins at the top of the shared not-found list.
+    pub(super) fn reset_onboarding_not_found_scroll(&mut self) {
+        self.onboarding_notfound_scroll = 0;
     }
 
     /// Handle a key while the "Log in to OpenAI?" prompt is up. Yes/No sit side
