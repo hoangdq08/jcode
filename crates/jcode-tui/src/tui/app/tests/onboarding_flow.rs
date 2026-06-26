@@ -820,3 +820,109 @@ fn not_found_panel_no_scroll_when_list_fits() {
     assert!(!app.handle_onboarding_continue_prompt_key(KeyCode::PageDown));
     assert_eq!(app.onboarding_notfound_scroll, 0);
 }
+
+#[test]
+fn scrollwm_optin_gate_logic() {
+    use super::onboarding_flow_control::scrollwm_optin_should_offer;
+    // Offered only on macOS, local, not installed, not answered.
+    assert!(scrollwm_optin_should_offer(true, false, false, false));
+    // Suppressed when already installed.
+    assert!(!scrollwm_optin_should_offer(true, false, true, false));
+    // Suppressed when already answered.
+    assert!(!scrollwm_optin_should_offer(true, false, false, true));
+    // Suppressed in remote sessions.
+    assert!(!scrollwm_optin_should_offer(true, true, false, false));
+    // Suppressed off macOS.
+    assert!(!scrollwm_optin_should_offer(false, false, false, false));
+}
+
+#[test]
+fn scrollwm_optin_enter_defaults_to_no() {
+    let mut app = onboarding_test_app();
+    app.onboarding_enter_scrollwm_optin();
+    assert!(matches!(
+        app.onboarding_phase(),
+        Some(OnboardingPhase::ScrollWmOptIn {
+            yes_highlighted: false,
+            ..
+        })
+    ));
+}
+
+#[test]
+fn scrollwm_optin_no_advances_to_suggestions_and_persists() {
+    with_temp_jcode_home(|| {
+        let mut app = onboarding_test_app();
+        app.onboarding_enter_scrollwm_optin();
+        app.onboarding_answer_scrollwm_optin(false);
+        assert!(matches!(
+            app.onboarding_phase(),
+            Some(OnboardingPhase::Suggestions)
+        ));
+        // The answer is persisted so we never re-ask.
+        assert!(crate::setup_hints::SetupHintsState::load().scrollwm_optin_answered);
+    });
+}
+
+#[test]
+fn scrollwm_optin_yes_sets_running_progress() {
+    with_temp_jcode_home(|| {
+        let mut app = onboarding_test_app();
+        app.onboarding_enter_scrollwm_optin();
+        app.onboarding_answer_scrollwm_optin(true);
+        // Stays on the opt-in card with a Running progress line; the install
+        // runs in the background and is resolved via the Bus event.
+        assert!(matches!(
+            app.onboarding_phase(),
+            Some(OnboardingPhase::ScrollWmOptIn { .. })
+        ));
+        let state = crate::setup_hints::SetupHintsState::load();
+        assert!(state.scrollwm_optin_answered);
+        assert!(state.scrollwm_install_started);
+    });
+}
+
+#[test]
+fn scrollwm_install_completed_advances_to_suggestions() {
+    with_temp_jcode_home(|| {
+        let mut app = onboarding_test_app();
+        app.onboarding_enter_scrollwm_optin();
+        app.onboarding_answer_scrollwm_optin(true);
+        let session_id = app.session.id.clone();
+        let consumed = app.handle_scrollwm_install_completed(
+            crate::bus::ScrollWmInstallCompleted {
+                session_id,
+                ok: true,
+                detail: None,
+            },
+        );
+        assert!(consumed);
+        assert!(matches!(
+            app.onboarding_phase(),
+            Some(OnboardingPhase::Suggestions)
+        ));
+    });
+}
+
+#[test]
+fn scrollwm_optin_key_yes_no_toggle_and_skip() {
+    with_temp_jcode_home(|| {
+        let mut app = onboarding_test_app();
+        app.onboarding_enter_scrollwm_optin();
+        // Left highlights Yes; Right highlights No.
+        assert!(app.handle_onboarding_continue_prompt_key(KeyCode::Left));
+        assert!(matches!(
+            app.onboarding_phase(),
+            Some(OnboardingPhase::ScrollWmOptIn {
+                yes_highlighted: true,
+                ..
+            })
+        ));
+        // 'n' skips and advances to suggestions.
+        assert!(app.handle_onboarding_continue_prompt_key(KeyCode::Char('n')));
+        assert!(matches!(
+            app.onboarding_phase(),
+            Some(OnboardingPhase::Suggestions)
+        ));
+    });
+}

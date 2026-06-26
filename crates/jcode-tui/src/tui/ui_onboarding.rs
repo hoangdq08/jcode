@@ -398,6 +398,124 @@ fn welcome_body_lines(app: &dyn TuiState) -> Vec<Line<'static>> {
             );
             return lines;
         }
+        OnboardingWelcomeKind::ScrollWmOptIn {
+            yes_highlighted,
+            seconds_left,
+            progress,
+        } => {
+            use crate::tui::ScrollWmInstallProgress;
+            lines.push(Line::from(""));
+            lines.push(
+                Line::from(Span::styled(
+                    "Set up ScrollWM?",
+                    Style::default()
+                        .fg(welcome_accent())
+                        .add_modifier(Modifier::BOLD),
+                ))
+                .alignment(align),
+            );
+            lines.push(
+                Line::from(Span::styled(
+                    "Arrange your swarm agents into a tidy scrolling strip.",
+                    Style::default().fg(dim_color()),
+                ))
+                .alignment(align),
+            );
+            lines.push(
+                Line::from(Span::styled(
+                    "One permission (Accessibility). macOS only.",
+                    Style::default().fg(dim_color()),
+                ))
+                .alignment(align),
+            );
+            lines.push(Line::from(""));
+
+            match progress {
+                // Install in flight / finished: show a status line instead of
+                // the Yes/No row so the card stops inviting input.
+                Some(ScrollWmInstallProgress::Running) => {
+                    lines.push(
+                        Line::from(Span::styled(
+                            "Installing ScrollWM… (this opens a menu-bar app)",
+                            Style::default()
+                                .fg(welcome_accent())
+                                .add_modifier(Modifier::BOLD),
+                        ))
+                        .alignment(align),
+                    );
+                    lines.push(
+                        Line::from(Span::styled(
+                            "When it finishes, grant Accessibility in System Settings.",
+                            Style::default().fg(dim_color()),
+                        ))
+                        .alignment(align),
+                    );
+                }
+                Some(ScrollWmInstallProgress::Succeeded) => {
+                    lines.push(
+                        Line::from(Span::styled(
+                            "✓ ScrollWM installed — grant Accessibility to finish.",
+                            Style::default()
+                                .fg(welcome_accent())
+                                .add_modifier(Modifier::BOLD),
+                        ))
+                        .alignment(align),
+                    );
+                }
+                Some(ScrollWmInstallProgress::Failed { detail }) => {
+                    lines.push(
+                        Line::from(Span::styled(
+                            format!("✕ Install didn't finish: {detail}"),
+                            Style::default().fg(dim_color()),
+                        ))
+                        .alignment(align),
+                    );
+                }
+                None => {
+                    // Yes / No options; the highlighted one is bold + accented.
+                    // Default highlight is "No" (never install on a timeout).
+                    let (yes_style, no_style) = if yes_highlighted {
+                        (
+                            Style::default()
+                                .fg(welcome_accent())
+                                .add_modifier(Modifier::BOLD | Modifier::REVERSED),
+                            Style::default().fg(dim_color()),
+                        )
+                    } else {
+                        (
+                            Style::default().fg(dim_color()),
+                            Style::default()
+                                .fg(welcome_accent())
+                                .add_modifier(Modifier::BOLD | Modifier::REVERSED),
+                        )
+                    };
+                    lines.push(
+                        Line::from(vec![
+                            Span::styled("  Yes  ", yes_style),
+                            Span::raw("   "),
+                            Span::styled("  No  ", no_style),
+                        ])
+                        .alignment(align),
+                    );
+                    lines.push(Line::from(""));
+                    lines.push(
+                        Line::from(Span::styled(
+                            "Left/right or h/l to move, Enter or Space to choose (y / n also work).",
+                            Style::default().fg(dim_color()),
+                        ))
+                        .alignment(align),
+                    );
+                    lines.push(
+                        Line::from(Span::styled(
+                            format!("Skips automatically in {seconds_left}s."),
+                            Style::default().fg(dim_color()),
+                        ))
+                        .alignment(align),
+                    );
+                }
+            }
+            return lines;
+        }
         OnboardingWelcomeKind::Suggestions => {}
     }
 

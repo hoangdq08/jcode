@@ -1207,6 +1207,18 @@ impl App {
                     seconds_left,
                 }
             }
+            Some(OnboardingPhase::ScrollWmOptIn {
+                yes_highlighted,
+                shown_at,
+            }) => {
+                let total = crate::tui::app::onboarding_flow::DECISION_TIMEOUT.as_secs();
+                let seconds_left = total.saturating_sub(shown_at.elapsed().as_secs());
+                OnboardingWelcomeKind::ScrollWmOptIn {
+                    yes_highlighted: *yes_highlighted,
+                    seconds_left,
+                    progress: self.scrollwm_install_progress.clone(),
+                }
+            }
             _ => OnboardingWelcomeKind::Suggestions,
         }
     }
@@ -1222,6 +1234,7 @@ impl App {
             Some(OnboardingPhase::Login { .. })
                 | Some(OnboardingPhase::LoginOpenAi { .. })
                 | Some(OnboardingPhase::ContinuePrompt { .. })
+                | Some(OnboardingPhase::ScrollWmOptIn { .. })
         )
     }
 

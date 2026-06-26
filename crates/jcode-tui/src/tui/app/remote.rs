@@ -485,6 +485,9 @@ pub(super) async fn handle_bus_event(
         Ok(BusEvent::OnboardingModelValidated(result)) => {
             app.handle_onboarding_model_validated(result)
         }
+        Ok(BusEvent::ScrollWmInstallCompleted(ev)) => {
+            app.handle_scrollwm_install_completed(ev)
+        }
         Ok(BusEvent::UpdateStatus(status)) => {
             app.handle_update_status(status);
             true

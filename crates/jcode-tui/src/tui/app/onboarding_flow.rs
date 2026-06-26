@@ -181,6 +181,19 @@ pub(crate) enum OnboardingPhase {
     },
     /// Single-select transcript picker with a 10s auto-select of the latest.
     TranscriptPick { cli: ExternalCli, shown_at: Instant },
+    /// Offer to install ScrollWM (a scrolling window manager that arranges
+    /// jcode's headed swarm agents into a tidy strip). macOS only; shown once
+    /// when ScrollWM is not already installed and the user hasn't answered
+    /// before. Highlightable Yes/No with a [`DECISION_TIMEOUT`] countdown whose
+    /// default (and timeout choice) is **No** so we never install software on a
+    /// silent timeout. Once the user picks Yes the install runs in the
+    /// background and `App::scrollwm_install_progress` drives the card.
+    ScrollWmOptIn {
+        /// Which option is highlighted (true = "Yes, install ScrollWM").
+        yes_highlighted: bool,
+        /// When the prompt was shown, for the countdown.
+        shown_at: Instant,
+    },
     /// Existing prompt-suggestion cards (resting / "No" state).
     Suggestions,
     /// Flow finished; nothing onboarding-specific to render.
@@ -273,13 +286,6 @@ impl OnboardingFlow {
     /// were detected. When no logins were detected (`import` is `None`) we ask a
     /// simple "Log in to OpenAI?" Yes/No instead of dropping straight to the
     /// provider picker.
-    pub(crate) fn begin_at_login(import: Option<ImportReview>) -> Self {
-        Self::begin_at_login_with_not_found(import, Vec::new())
-    }
-
-    /// Like [`OnboardingFlow::begin_at_login`], but also records the probed
-    /// credential families that were absent, for the "Searched, not found"
-    /// panel.
     pub(crate) fn begin_at_login_with_not_found(
         import: Option<ImportReview>,
         login_not_found: Vec<crate::external_auth::AuthSearchTarget>,
@@ -315,6 +321,11 @@ impl OnboardingFlow {
                     .saturating_sub(shown_at.elapsed())
                     .as_secs(),
             ),
+            OnboardingPhase::ScrollWmOptIn { shown_at, .. } => Some(
+                DECISION_TIMEOUT
+                    .saturating_sub(shown_at.elapsed())
+                    .as_secs(),
+            ),
             _ => None,
         }
     }
@@ -327,6 +338,9 @@ impl OnboardingFlow {
                 import: Some(review),
             } => review.timed_out(),
             OnboardingPhase::ContinuePrompt { shown_at, .. } => {
+                shown_at.elapsed() >= DECISION_TIMEOUT
+            }
+            OnboardingPhase::ScrollWmOptIn { shown_at, .. } => {
                 shown_at.elapsed() >= DECISION_TIMEOUT
             }
             _ => false,

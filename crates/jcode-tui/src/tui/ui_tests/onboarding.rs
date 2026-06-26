@@ -168,3 +168,48 @@ fn onboarding_not_found_panel_shows_scroll_affordance_when_overflowing() {
     );
 }
 
+
+
+#[test]
+fn onboarding_scrollwm_optin_card_renders_decision_and_progress() {
+    use crate::tui::{OnboardingWelcomeKind, ScrollWmInstallProgress};
+
+    // Decision state: shows the pitch + Yes/No + countdown.
+    let decision = TestState {
+        onboarding_preview: true,
+        onboarding_welcome_kind: Some(OnboardingWelcomeKind::ScrollWmOptIn {
+            yes_highlighted: false,
+            seconds_left: 60,
+            progress: None,
+        }),
+        ..Default::default()
+    };
+    let text = render_onboarding(&decision, 80, 34);
+    assert!(text.contains("Set up ScrollWM?"), "pitch title:\n{text}");
+    assert!(text.contains("Accessibility"), "permission note:\n{text}");
+    assert!(
+        text.contains("Yes") && text.contains("No"),
+        "Yes/No row:\n{text}"
+    );
+    assert!(text.contains("Skips automatically"), "countdown:\n{text}");
+
+    // Running state: shows the install progress line, no Yes/No countdown.
+    let running = TestState {
+        onboarding_preview: true,
+        onboarding_welcome_kind: Some(OnboardingWelcomeKind::ScrollWmOptIn {
+            yes_highlighted: false,
+            seconds_left: 60,
+            progress: Some(ScrollWmInstallProgress::Running),
+        }),
+        ..Default::default()
+    };
+    let text = render_onboarding(&running, 80, 34);
+    assert!(
+        text.contains("Installing ScrollWM"),
+        "running progress line:\n{text}"
+    );
+    assert!(
+        !text.contains("Skips automatically"),
+        "countdown should be gone while installing:\n{text}"
+    );
+}

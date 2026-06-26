@@ -672,8 +672,29 @@ pub enum OnboardingWelcomeKind {
         yes_highlighted: bool,
         seconds_left: u64,
     },
+    /// "Set up ScrollWM?" opt-in with a highlightable Yes/No selector and a
+    /// live decision countdown. `progress` is `None` while waiting for the
+    /// decision and `Some(..)` once a background install is running / finished,
+    /// at which point the card shows a status line instead of the Yes/No row.
+    ScrollWmOptIn {
+        yes_highlighted: bool,
+        seconds_left: u64,
+        progress: Option<ScrollWmInstallProgress>,
+    },
     /// The starter prompt-suggestion cards (default).
     Suggestions,
+}
+
+/// Progress of the onboarding "Set up ScrollWM?" background install, shown in
+/// place of the Yes/No row once the user opts in.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ScrollWmInstallProgress {
+    /// The installer is downloading / installing.
+    Running,
+    /// Install finished successfully (user must still grant Accessibility).
+    Succeeded,
+    /// Install failed; carries a short reason.
+    Failed { detail: String },
 }
 
 /// One row in the "Searched, not found" onboarding panel: a credential source

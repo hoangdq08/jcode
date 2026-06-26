@@ -73,6 +73,15 @@ pub struct SetupHintsState {
     /// never nagged about the same conflicts on every launch.
     #[serde(default)]
     pub keymap_conflict_signature: String,
+    /// True once the user has answered the onboarding "Set up ScrollWM?" opt-in
+    /// (Yes, No, or a timeout skip). When set we never show the opt-in again.
+    #[serde(default)]
+    pub scrollwm_optin_answered: bool,
+    /// True if the user chose "Yes" and we kicked off (or completed) a ScrollWM
+    /// install. Lets a later launch optionally remind the user to finish
+    /// granting Accessibility without re-asking the opt-in.
+    #[serde(default)]
+    pub scrollwm_install_started: bool,
 }
 
 /// Current macOS hotkey listener implementation version.
