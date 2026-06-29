@@ -740,7 +740,7 @@ impl Provider for OpenAIProvider {
     }
 
     fn available_efforts(&self) -> Vec<&'static str> {
-        vec!["none", "low", "medium", "high", "xhigh", "swarm"]
+        vec!["none", "low", "medium", "high", "xhigh", "swarm", "swarm-deep"]
     }
 
     fn service_tier(&self) -> Option<String> {

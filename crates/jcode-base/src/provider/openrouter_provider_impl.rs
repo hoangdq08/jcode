@@ -389,12 +389,12 @@ impl Provider for OpenRouterProvider {
 
     fn available_efforts(&self) -> Vec<&'static str> {
         if self.supports_deepseek_reasoning_effort() {
-            vec!["none", "low", "medium", "high", "max", "swarm"]
+            vec!["none", "low", "medium", "high", "max", "swarm", "swarm-deep"]
         } else if Self::profile_supports_unified_reasoning(
             self.profile_id.as_deref(),
             self.send_openrouter_headers,
         ) {
-            vec!["none", "low", "medium", "high", "xhigh", "swarm"]
+            vec!["none", "low", "medium", "high", "xhigh", "swarm", "swarm-deep"]
         } else {
             vec![]
         }
