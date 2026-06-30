@@ -103,7 +103,9 @@ struct ErrorBanner: View {
                 Image(systemName: "xmark")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(Theme.textSecondary)
+                    .frame(width: 44, height: 44)
             }
+            .accessibilityLabel("Dismiss error")
         }
         .padding(12)
         .background(Theme.error.opacity(0.12))
@@ -149,7 +151,9 @@ private struct NoticeRow: View {
                 Image(systemName: "xmark")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(Theme.textSecondary)
+                    .frame(width: 44, height: 44)
             }
+            .accessibilityLabel("Dismiss notice")
         }
         .padding(12)
         .background(tint.opacity(0.12))

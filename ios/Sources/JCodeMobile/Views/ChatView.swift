@@ -66,7 +66,10 @@ struct ChatView: View {
                 Image(systemName: "ellipsis.circle")
                     .font(.title3)
                     .foregroundStyle(Theme.textSecondary)
+                    .frame(width: 44, height: 44)
             }
+            .accessibilityLabel("Settings")
+            .accessibilityHint("Sessions, model, and servers")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
@@ -301,21 +304,24 @@ struct Composer: View {
                     Image(systemName: "stop.fill")
                         .font(.body.weight(.semibold))
                         .foregroundStyle(Theme.error)
-                        .frame(width: 40, height: 40)
+                        .frame(width: 44, height: 44)
                         .background(Theme.surface)
                         .clipShape(Circle())
                 }
+                .accessibilityLabel("Stop")
+                .accessibilityHint("Interrupt the current response")
             }
 
             Button(action: onSend) {
                 Image(systemName: "arrow.up")
                     .font(.body.weight(.bold))
                     .foregroundStyle(.black)
-                    .frame(width: 40, height: 40)
+                    .frame(width: 44, height: 44)
                     .background(canSend ? Theme.mint : Theme.surfaceElevated)
                     .clipShape(Circle())
             }
             .disabled(!canSend)
+            .accessibilityLabel(isProcessing ? "Queue message" : "Send message")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
