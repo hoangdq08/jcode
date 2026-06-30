@@ -45,8 +45,8 @@ struct ChatView: View {
     }
 
     private var header: some View {
-        HStack(spacing: 10) {
-            VStack(alignment: .leading, spacing: 2) {
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(model.session.sessionTitle ?? model.activeServer?.serverName ?? "jcode")
                     .font(Theme.mono(16, weight: .semibold))
                     .foregroundStyle(Theme.textPrimary)
@@ -72,7 +72,7 @@ struct ChatView: View {
             .accessibilityHint("Sessions, model, and servers")
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .padding(.vertical, 8)
     }
 }
 
@@ -237,7 +237,7 @@ struct ToolCallCard: View {
                 }
             }
         }
-        .padding(10)
+        .padding(8)
         .background(Theme.surfaceElevated)
         .clipShape(RoundedRectangle(cornerRadius: 10))
     }
@@ -281,7 +281,7 @@ struct Composer: View {
     let onInterrupt: () -> Void
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 10) {
+        HStack(alignment: .bottom, spacing: 8) {
             TextField(
                 isProcessing ? "Queue a message..." : "Message",
                 text: $draft,
@@ -290,8 +290,8 @@ struct Composer: View {
             .lineLimit(1...6)
             .font(.body)
             .foregroundStyle(Theme.textPrimary)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
             .background(Theme.surface)
             .clipShape(RoundedRectangle(cornerRadius: 20))
             .overlay(
@@ -324,7 +324,7 @@ struct Composer: View {
             .accessibilityLabel(isProcessing ? "Queue message" : "Send message")
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .padding(.vertical, 8)
         .background(Theme.background)
     }
 

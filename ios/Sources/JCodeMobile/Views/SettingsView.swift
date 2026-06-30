@@ -140,7 +140,7 @@ struct SettingsView: View {
                     dismiss()
                 } label: {
                     HStack {
-                        VStack(alignment: .leading, spacing: 2) {
+                        VStack(alignment: .leading, spacing: 4) {
                             Text(server.serverName)
                                 .font(.body)
                                 .foregroundStyle(Theme.textPrimary)

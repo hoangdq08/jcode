@@ -51,7 +51,7 @@ struct StatusPill: View {
     let phase: ConnectionPhase
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 8) {
             Circle()
                 .fill(color)
                 .frame(width: 8, height: 8)
@@ -60,8 +60,8 @@ struct StatusPill: View {
                 .font(Theme.mono(12))
                 .foregroundStyle(Theme.textSecondary)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 4)
         .background(Theme.surface)
         .clipShape(Capsule())
         .overlay(Capsule().stroke(Theme.border, lineWidth: 1))
@@ -95,7 +95,7 @@ struct ErrorBanner: View {
     let dismiss: () -> Void
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(Theme.error)
                 .accessibilityHidden(true)
@@ -132,7 +132,7 @@ struct NoticeStack: View {
     let onDismiss: (UUID) -> Void
 
     var body: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 4) {
             ForEach(notices) { notice in
                 NoticeRow(notice: notice) { onDismiss(notice.id) }
             }
@@ -147,7 +147,7 @@ private struct NoticeRow: View {
     let dismiss: () -> Void
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             Image(systemName: icon)
                 .foregroundStyle(tint)
                 .accessibilityHidden(true)

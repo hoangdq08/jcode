@@ -26,7 +26,7 @@ struct PairingView: View {
                 }
 
                 Card {
-                    VStack(alignment: .leading, spacing: 14) {
+                    VStack(alignment: .leading, spacing: 16) {
                         field("Host", text: $host, placeholder: "devbox.tailnet.ts.net")
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
@@ -47,7 +47,7 @@ struct PairingView: View {
                             .font(.headline)
                     }
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
+                    .padding(.vertical, 16)
                     .background(canPair ? Theme.mint : Theme.surfaceElevated)
                     .foregroundStyle(canPair ? .black : Theme.textTertiary)
                     .clipShape(RoundedRectangle(cornerRadius: 14))
@@ -98,7 +98,7 @@ struct PairingView: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
             Text("jcode")
                 .font(Theme.mono(34, weight: .bold))
                 .foregroundStyle(Theme.textPrimary)
@@ -115,14 +115,14 @@ struct PairingView: View {
     }
 
     private func field(_ label: String, text: Binding<String>, placeholder: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
             Text(label)
                 .font(.caption)
                 .foregroundStyle(Theme.textTertiary)
             TextField(placeholder, text: text)
                 .font(Theme.mono(16))
                 .foregroundStyle(Theme.textPrimary)
-                .padding(10)
+                .padding(12)
                 .background(Theme.surfaceElevated)
                 .clipShape(RoundedRectangle(cornerRadius: 10))
                 .accessibilityLabel(label)
