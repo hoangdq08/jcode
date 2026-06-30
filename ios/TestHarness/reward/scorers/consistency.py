@@ -31,7 +31,7 @@ from reward.types import CategoryScore, make_unavailable
 
 NAME = "consistency"
 CATEGORY = "C"
-WEIGHT = 0.07
+WEIGHT = 0.0595
 
 # Raw style literals that bypass the design tokens (mirrors ui_lint intent).
 _RAW_COLOR_RE = re.compile(r"Color\(\s*(red|white|\.sRGB|hue|displayP3)", re.IGNORECASE)

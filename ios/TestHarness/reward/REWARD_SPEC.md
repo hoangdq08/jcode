@@ -24,34 +24,51 @@ no network.
 ## Category taxonomy (what matters, UX efficiency first)
 
 Weights sum to 1.0. UX efficiency is weighted highest per the product goal.
+Categories A-E are scaled to sum 0.85; category F (design authenticity) adds
+0.15. Declared per-scorer weights below already reflect this rebalance.
 
-### A. Space & density (weight 0.30) - "no wasted pixels"
+### A. Space & density (weight 0.255) - "no wasted pixels"
 - `space_efficiency`   canvas fill ratio, vertical balance, largest dead zone.
 - `information_density` useful content vs chrome (status bar/header/composer).
 - `content_safety`     no clipping/overflow/truncation; nothing under chrome.
 
-### B. Ergonomics & interaction (weight 0.25) - "cheap to use"
+### B. Ergonomics & interaction (weight 0.2125) - "cheap to use"
 - `touch_targets`      interactive elements >= 44x44pt, adequate spacing.
 - `reachability`       primary actions in the comfortable thumb zone.
 - `interaction_cost`   taps/steps to complete key flows (pair, send, switch
                        session, change model, interrupt).
 
-### C. Visual clarity (weight 0.20) - "easy to parse"
+### C. Visual clarity (weight 0.17) - "easy to parse"
 - `visual_hierarchy`   one clear focal point / salient primary action.
 - `consistency`        design-token discipline (source) + palette discipline
                        (pixel): few dominant colors, aligned margins.
 - `rhythm`             spacing snaps to the 8pt grid (source + pixel).
 
-### D. Legibility & accessibility (weight 0.15) - "everyone can read it"
+### D. Legibility & accessibility (weight 0.1275) - "everyone can read it"
 - `contrast`           WCAG text/background contrast on real content.
 - `accessibility`      VoiceOver labels, Dynamic Type, reduce-motion, semantic
                        roles present in source / AX tree.
 
-### E. Responsiveness (weight 0.10) - "feels instant"
+### E. Responsiveness (weight 0.085) - "feels instant"
 - `layout_robustness`  stable across the device x content matrix (variance of
                        per-cell scores; penalize fragile layouts).
 - `perf`               cold-launch-to-first-frame + scroll smoothness signals
                        (best-effort from simctl/Instruments; degrade to N/A).
+
+### F. Design authenticity & craft (weight 0.15) - "designed, not generated"
+Higher score = MORE crafted / LESS generic. Grounded in
+`reward/AI_SLOP_RESEARCH.md` (documented AI-slop tells).
+- `styling`       aesthetic coherence & intent: one dominant color + sparing
+                  sharp accent (not a timid rainbow), a real type scale, a
+                  consistent radius/elevation system. Source + pixel.
+- `simplicity`    anti-complexity: shallow view-nesting depth, few distinct UI
+                  primitives per screen, minimal card-in-card nesting, generous
+                  purposeful negative space. Source + pixel.
+- `ai_patterns`   anti-slop (higher = less slop): penalize purple/indigo/cyan
+                  slop palettes, gradient text, glassmorphism/blur overuse,
+                  generic fonts (Inter/Roboto/Arial/Space Grotesk), emoji-as-UI,
+                  uniform 0.1 shadows, oversized uniform radius, decorative
+                  badges. 0 tells = 100. Source primary, pixel corroboration.
 
 ## Scorer contract
 

@@ -19,7 +19,7 @@ from reward.types import CategoryScore, make_unavailable
 
 NAME = "contrast"
 CATEGORY = "D"
-WEIGHT = 0.08
+WEIGHT = 0.068
 
 # WCAG thresholds.
 AA = 4.5

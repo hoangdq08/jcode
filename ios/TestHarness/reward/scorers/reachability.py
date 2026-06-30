@@ -26,7 +26,7 @@ from reward.types import CategoryScore, make_unavailable
 
 NAME = "reachability"
 CATEGORY = "B"
-WEIGHT = 0.08
+WEIGHT = 0.068
 
 # Thumb-zone band, as a fraction of the *content* height (chrome trimmed). The
 # bottom 25% is the comfortable reach; below ~0.45 reachability degrades.

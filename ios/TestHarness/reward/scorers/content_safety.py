@@ -19,7 +19,7 @@ from reward.types import CategoryScore, make_unavailable
 
 NAME = "content_safety"
 CATEGORY = "A"
-WEIGHT = 0.08
+WEIGHT = 0.068
 
 STATUS_BAR_FRAC = 0.055
 HOME_INDICATOR_FRAC = 0.025

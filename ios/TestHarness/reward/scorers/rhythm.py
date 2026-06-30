@@ -23,7 +23,7 @@ from reward.types import CategoryScore, make_unavailable
 
 NAME = "rhythm"
 CATEGORY = "C"
-WEIGHT = 0.06
+WEIGHT = 0.051
 
 _GRID_PT = 8
 # Accepted spacing values: the 8pt grid plus the common 4pt half-steps it is

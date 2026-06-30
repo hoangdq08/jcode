@@ -35,7 +35,7 @@ from reward.types import CategoryScore, make_unavailable
 
 NAME = "layout_robustness"
 CATEGORY = "E"
-WEIGHT = 0.06
+WEIGHT = 0.051
 
 # Boundary band thickness (fraction of the content region) used to detect
 # content bleeding into chrome / jammed against screen edges.

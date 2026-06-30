@@ -37,7 +37,7 @@ from reward.types import CategoryScore, make_unavailable
 
 NAME = "perf"
 CATEGORY = "E"
-WEIGHT = 0.04
+WEIGHT = 0.034
 
 # (good_ms_or_frac, bad_ms_or_frac, sub_weight) per metric. `good` maps to 100,
 # `bad` maps to 0, linear in between, clamped to [0, 100].

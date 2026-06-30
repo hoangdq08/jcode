@@ -14,7 +14,7 @@ from reward.types import CategoryScore, make_unavailable
 
 NAME = "space_efficiency"
 CATEGORY = "A"
-WEIGHT = 0.14
+WEIGHT = 0.119
 
 
 def _longest_run(flags) -> int:

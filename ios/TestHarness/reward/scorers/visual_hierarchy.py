@@ -27,7 +27,7 @@ from reward.types import CategoryScore, make_unavailable
 
 NAME = "visual_hierarchy"
 CATEGORY = "C"
-WEIGHT = 0.07
+WEIGHT = 0.0595
 
 # Max possible RGB euclidean distance, used to normalize contrast salience.
 _MAX_RGB_DIST = math.sqrt(3 * 255.0 * 255.0)

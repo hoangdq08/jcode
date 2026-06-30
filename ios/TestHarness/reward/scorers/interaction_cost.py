@@ -32,7 +32,7 @@ from reward.types import CategoryScore, make_unavailable
 
 NAME = "interaction_cost"
 CATEGORY = "B"
-WEIGHT = 0.08
+WEIGHT = 0.068
 
 # Tap-cost -> score. 1 tap is ideal (100); each extra tap costs ~22 points;
 # anything 5+ taps deep, or unreachable, bottoms out near 0.

@@ -30,7 +30,7 @@ from reward.types import CategoryScore, make_unavailable
 
 NAME = "touch_targets"
 CATEGORY = "B"
-WEIGHT = 0.09
+WEIGHT = 0.0765
 
 # Apple HIG ergonomics constants.
 MIN_TARGET_PT = 44.0

@@ -16,7 +16,7 @@ from reward.types import CategoryScore, make_unavailable
 
 NAME = "information_density"
 CATEGORY = "A"
-WEIGHT = 0.08
+WEIGHT = 0.068
 
 # Approximate chrome band heights as a fraction of the content area. The header
 # (title + status pill) and the composer are fixed overhead.
