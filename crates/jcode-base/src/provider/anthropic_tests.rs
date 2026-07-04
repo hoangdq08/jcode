@@ -103,7 +103,15 @@ fn test_anthropic_reasoning_effort_request_parts() {
 
     assert_eq!(
         provider.available_efforts(),
-        vec!["none", "low", "medium", "high", "max", "swarm", "swarm-deep"]
+        vec![
+            "none",
+            "low",
+            "medium",
+            "high",
+            "max",
+            "swarm",
+            "swarm-deep"
+        ]
     );
     assert_eq!(provider.reasoning_effort().as_deref(), Some("none"));
 
@@ -1400,14 +1408,14 @@ fn credential_mode_runtime_provider_identity_round_trips() {
 
     crate::env::set_var("JCODE_RUNTIME_PROVIDER", "claude");
     assert_eq!(
-        AnthropicCredentialMode::from_runtime_env(),
+        AnthropicCredentialMode::from_runtime_env(jcode_provider_core::DualAuthProvider::Anthropic),
         AnthropicCredentialMode::OAuth,
         "OAuth selection must surface as the OAuth runtime identity"
     );
 
     crate::env::set_var("JCODE_RUNTIME_PROVIDER", "claude-api");
     assert_eq!(
-        AnthropicCredentialMode::from_runtime_env(),
+        AnthropicCredentialMode::from_runtime_env(jcode_provider_core::DualAuthProvider::Anthropic),
         AnthropicCredentialMode::ApiKey,
         "API-key selection must surface as the API-key runtime identity"
     );

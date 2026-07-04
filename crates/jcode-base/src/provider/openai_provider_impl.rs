@@ -740,7 +740,15 @@ impl Provider for OpenAIProvider {
     }
 
     fn available_efforts(&self) -> Vec<&'static str> {
-        vec!["none", "low", "medium", "high", "xhigh", "swarm", "swarm-deep"]
+        vec![
+            "none",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "swarm",
+            "swarm-deep",
+        ]
     }
 
     fn service_tier(&self) -> Option<String> {
@@ -961,7 +969,7 @@ impl Provider for OpenAIProvider {
 
     async fn invalidate_credentials(&self) {
         let mode = *self.credential_mode.read().await;
-        if let Ok(credentials) = mode.load_credentials() {
+        if let Ok(credentials) = super::load_credentials_for_mode(mode) {
             let mut guard = self.credentials.write().await;
             *guard = credentials;
         }

@@ -183,14 +183,14 @@ fn openai_credential_mode_runtime_provider_identity_round_trips() {
 
     crate::env::set_var("JCODE_RUNTIME_PROVIDER", "openai");
     assert_eq!(
-        OpenAICredentialMode::from_runtime_env(),
+        OpenAICredentialMode::from_runtime_env(jcode_provider_core::DualAuthProvider::OpenAI),
         OpenAICredentialMode::OAuth,
         "OAuth selection must surface as the OAuth runtime identity"
     );
 
     crate::env::set_var("JCODE_RUNTIME_PROVIDER", "openai-api");
     assert_eq!(
-        OpenAICredentialMode::from_runtime_env(),
+        OpenAICredentialMode::from_runtime_env(jcode_provider_core::DualAuthProvider::OpenAI),
         OpenAICredentialMode::ApiKey,
         "API-key selection must surface as the API-key runtime identity"
     );
