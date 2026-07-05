@@ -20,6 +20,12 @@ pub fn image_protocol_available() -> bool {
     false
 }
 
+/// Monotonic deferred-render epoch. The fallback renderer never defers, so
+/// the epoch never advances.
+pub fn deferred_render_epoch() -> u64 {
+    0
+}
+
 pub fn render_mermaid_deferred_with_stream_scope(
     _content: &str,
     _terminal_width: Option<u16>,

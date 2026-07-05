@@ -725,6 +725,13 @@ pub fn deferred_render_epoch() -> u64 {
     DEFERRED_RENDER_EPOCH.load(Ordering::Relaxed)
 }
 
+/// Test-only: advance the deferred-render epoch as if a background render
+/// just completed, so cache layers that stamp pending placeholders can be
+/// exercised deterministically without racing the real worker thread.
+pub fn debug_bump_deferred_render_epoch_for_tests() {
+    bump_deferred_render_epoch();
+}
+
 fn deferred_render_sender() -> &'static mpsc::Sender<DeferredRenderTask> {
     DEFERRED_RENDER_TX.get_or_init(|| {
         let (tx, rx) = mpsc::channel::<DeferredRenderTask>();
