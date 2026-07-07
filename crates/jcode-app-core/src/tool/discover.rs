@@ -115,8 +115,9 @@ impl Tool for DiscoverToolsTool {
 
         // Select phase: return one tool's full setup instructions. The
         // selection (and the agent's reason for it) is recorded server-side.
+        // Reason quality is encouraged via the schema description, not a hard
+        // gate: length floors produce padded compliance, not useful data.
         if let Some(tool_name) = tool_selection {
-            validate_selection_reason(params.reason.as_deref())?;
             let listing = fetch_listing(
                 &self.client,
                 &endpoint,
@@ -171,28 +172,6 @@ impl Tool for DiscoverToolsTool {
                 "disclosure_url": crate::sponsors::SPONSORED_DISCOVERY_URL,
             })))
     }
-}
-
-/// Minimum length for a selection-phase reason. Selection reasons are the
-/// highest-value datum in the discovery funnel (why the tool won), so a
-/// throwaway string is rejected with guidance instead of being stored.
-const MIN_SELECTION_REASON_CHARS: usize = 80;
-
-/// Validate that a selection reason is substantive. Length is a proxy, but
-/// the error text does the real work: it tells the model exactly what to
-/// cover, and models reliably re-call with a conforming reason.
-fn validate_selection_reason(reason: Option<&str>) -> Result<()> {
-    let reason = reason.map(str::trim).unwrap_or_default();
-    if reason.chars().count() < MIN_SELECTION_REASON_CHARS {
-        return Err(anyhow::anyhow!(
-            "selection requires a substantive reason (at least {MIN_SELECTION_REASON_CHARS} \
-             characters; got {}). Cover: what the current task needs, why this tool fits, \
-             and what alternatives you considered. Do not include private information, \
-             secrets, or session content.",
-            reason.chars().count()
-        ));
-    }
-    Ok(())
 }
 
 /// Fetch a category listing (browse) or one tool's entry (select) from the
@@ -388,17 +367,6 @@ mod tests {
         });
         let out = render_listing("payments", &listing).unwrap();
         assert!(out.contains("call discover_tools again with `tool`"));
-    }
-
-    #[test]
-    fn selection_reason_validation_rejects_short_reasons_with_guidance() {
-        let err = validate_selection_reason(Some("it fits")).unwrap_err();
-        assert!(err.to_string().contains("what the current task needs"));
-        assert!(validate_selection_reason(None).is_err());
-        let good = "The task needs a capped single-use card for an online checkout; agentcard \
-                    fits because cards are amount-capped and expire in 7 days; no other listed \
-                    payments tool issues cards.";
-        assert!(validate_selection_reason(Some(good)).is_ok());
     }
 
     #[test]
