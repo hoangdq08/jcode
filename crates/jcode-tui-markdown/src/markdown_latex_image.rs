@@ -9,10 +9,15 @@ use std::sync::{LazyLock, Mutex};
 use std::time::Duration;
 use wait_timeout::ChildExt;
 
-const RENDERER_VERSION: u8 = 2;
+const RENDERER_VERSION: u8 = 3;
 const MAX_SOURCE_BYTES: usize = 32 * 1024;
 const COMMAND_TIMEOUT: Duration = Duration::from_secs(8);
 const FOREGROUND: (u8, u8, u8) = (130, 210, 235);
+const FALLBACK_RENDER_DPI: u16 = 240;
+const MIN_RENDER_DPI: u16 = 240;
+const MAX_RENDER_DPI: u16 = 480;
+const DPI_PER_CELL_PIXEL: u16 = 9;
+const DPI_QUANTUM: u16 = 12;
 
 static LOG_HOOK: LazyLock<Mutex<fn(&str)>> = LazyLock::new(|| Mutex::new(|_| {}));
 static LAST_REPORTED_ERROR: LazyLock<Mutex<Option<String>>> = LazyLock::new(|| Mutex::new(None));
@@ -75,7 +80,8 @@ pub(super) fn render_latex_image(
     if !super::mermaid::image_protocol_available() {
         return Err("terminal image protocol unavailable".to_string());
     }
-    let artifact = render_artifact(source, display, &Toolchain::from_environment())?;
+    let dpi = render_dpi(super::mermaid::get_font_size());
+    let artifact = render_artifact(source, display, dpi, &Toolchain::from_environment())?;
     let hash =
         super::mermaid::register_external_image(&artifact.path, artifact.width, artifact.height);
     Ok(super::mermaid::result_to_lines(
@@ -96,19 +102,41 @@ struct Artifact {
     height: u32,
 }
 
-fn render_artifact(source: &str, display: bool, toolchain: &Toolchain) -> Result<Artifact, String> {
-    render_artifact_in(source, display, toolchain, &cache_dir()?)
+fn render_dpi(font_size: Option<(u16, u16)>) -> u16 {
+    let Some((_, cell_height)) = font_size else {
+        return FALLBACK_RENDER_DPI;
+    };
+    // Computer Modern's visible ink is roughly 8/72 of the requested DPI for
+    // ordinary 10pt symbols. Nine DPI per terminal-row pixel therefore keeps
+    // simple math close to one full row of ink instead of letting it become
+    // smaller as users increase their terminal font size. Quantizing avoids
+    // producing redundant cache entries for tiny geometry differences.
+    let raw = cell_height
+        .max(1)
+        .saturating_mul(DPI_PER_CELL_PIXEL)
+        .clamp(MIN_RENDER_DPI, MAX_RENDER_DPI);
+    raw.saturating_add(DPI_QUANTUM / 2) / DPI_QUANTUM * DPI_QUANTUM
+}
+
+fn render_artifact(
+    source: &str,
+    display: bool,
+    dpi: u16,
+    toolchain: &Toolchain,
+) -> Result<Artifact, String> {
+    render_artifact_in(source, display, dpi, toolchain, &cache_dir()?)
 }
 
 fn render_artifact_in(
     source: &str,
     display: bool,
+    dpi: u16,
     toolchain: &Toolchain,
     cache_dir: &Path,
 ) -> Result<Artifact, String> {
     validate_source(source)?;
     fs::create_dir_all(cache_dir).map_err(|e| format!("create LaTeX cache: {e}"))?;
-    let cache_path = cache_dir.join(format!("{:016x}.png", cache_key(source, display)));
+    let cache_path = cache_dir.join(format!("{:016x}.png", cache_key(source, display, dpi)));
     if let Ok(artifact) = load_artifact(&cache_path) {
         return Ok(artifact);
     }
@@ -121,6 +149,7 @@ fn render_artifact_in(
     fs::write(&tex_path, latex_document(source, display))
         .map_err(|e| format!("write LaTeX source: {e}"))?;
 
+    let dpi_arg = dpi.to_string();
     let dvi_result = run_command(
         &toolchain.latex,
         [
@@ -136,7 +165,7 @@ fn render_artifact_in(
             &toolchain.dvipng,
             [
                 "-D",
-                "180",
+                dpi_arg.as_str(),
                 "-T",
                 "tight",
                 "-bg",
@@ -151,7 +180,7 @@ fn render_artifact_in(
         )
     });
     if let Err(dvi_error) = dvi_result {
-        render_with_pdf_toolchain(toolchain, work.path()).map_err(|pdf_error| {
+        render_with_pdf_toolchain(toolchain, work.path(), dpi).map_err(|pdf_error| {
             format!("DVI renderer failed ({dvi_error}); PDF renderer failed ({pdf_error})")
         })?;
     }
@@ -170,7 +199,11 @@ fn render_artifact_in(
     load_artifact(&cache_path)
 }
 
-fn render_with_pdf_toolchain(toolchain: &Toolchain, working_dir: &Path) -> Result<(), String> {
+fn render_with_pdf_toolchain(
+    toolchain: &Toolchain,
+    working_dir: &Path,
+    dpi: u16,
+) -> Result<(), String> {
     run_command(
         &toolchain.pdflatex,
         [
@@ -181,15 +214,23 @@ fn render_with_pdf_toolchain(toolchain: &Toolchain, working_dir: &Path) -> Resul
         ],
         working_dir,
     )?;
+    let dpi_arg = dpi.to_string();
     run_command(
         &toolchain.pdftocairo,
-        ["-png", "-singlefile", "-r", "180", "formula.pdf", "formula"],
+        [
+            "-png",
+            "-singlefile",
+            "-r",
+            dpi_arg.as_str(),
+            "formula.pdf",
+            "formula",
+        ],
         working_dir,
     )?;
-    recolor_and_crop(&working_dir.join("formula.png"))
+    recolor_and_crop(&working_dir.join("formula.png"), dpi)
 }
 
-fn recolor_and_crop(path: &Path) -> Result<(), String> {
+fn recolor_and_crop(path: &Path, dpi: u16) -> Result<(), String> {
     let image = image::open(path)
         .map_err(|e| format!("read PDF-rendered LaTeX PNG: {e}"))?
         .into_rgba8();
@@ -209,7 +250,7 @@ fn recolor_and_crop(path: &Path) -> Result<(), String> {
     }
     let (min_x, min_y, max_x, max_y) =
         bounds.ok_or_else(|| "rendered formula is blank".to_string())?;
-    let padding = 4;
+    let padding = u32::from(dpi).saturating_mul(4).div_ceil(180).max(4);
     let left = min_x.saturating_sub(padding);
     let top = min_y.saturating_sub(padding);
     let right = max_x.saturating_add(padding).min(width.saturating_sub(1));
@@ -307,11 +348,12 @@ fn command_diagnostics(path: &Path) -> String {
         .join(" ")
 }
 
-fn cache_key(source: &str, display: bool) -> u64 {
+fn cache_key(source: &str, display: bool, dpi: u16) -> u64 {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     RENDERER_VERSION.hash(&mut hasher);
     source.hash(&mut hasher);
     display.hash(&mut hasher);
+    dpi.hash(&mut hasher);
     FOREGROUND.hash(&mut hasher);
     hasher.finish()
 }
@@ -373,9 +415,18 @@ mod tests {
 
     #[test]
     fn cache_key_is_stable_and_separates_inline_from_display() {
-        assert_eq!(cache_key("x", false), cache_key("x", false));
-        assert_ne!(cache_key("x", false), cache_key("x", true));
-        assert_ne!(cache_key("x", false), cache_key("y", false));
+        assert_eq!(cache_key("x", false, 240), cache_key("x", false, 240));
+        assert_ne!(cache_key("x", false, 240), cache_key("x", true, 240));
+        assert_ne!(cache_key("x", false, 240), cache_key("y", false, 240));
+        assert_ne!(cache_key("x", false, 240), cache_key("x", false, 312));
+    }
+
+    #[test]
+    fn render_dpi_tracks_terminal_cell_height_with_readable_bounds() {
+        assert_eq!(render_dpi(None), 240);
+        assert_eq!(render_dpi(Some((8, 16))), 240);
+        assert_eq!(render_dpi(Some((15, 34))), 312);
+        assert_eq!(render_dpi(Some((20, 60))), 480);
     }
 
     #[test]
@@ -393,6 +444,7 @@ mod tests {
         let result = render_artifact_in(
             "unique_missing_toolchain_test_4815162342",
             false,
+            240,
             &Toolchain {
                 latex: missing.clone(),
                 dvipng: missing.clone(),
@@ -429,6 +481,7 @@ mod tests {
         let artifact = render_artifact_in(
             r"\frac{x+1}{y}",
             true,
+            240,
             &Toolchain {
                 latex,
                 dvipng,
@@ -445,6 +498,7 @@ mod tests {
         let cached = render_artifact_in(
             r"\frac{x+1}{y}",
             true,
+            240,
             &Toolchain {
                 latex: missing.clone(),
                 dvipng: missing.clone(),
@@ -493,6 +547,7 @@ mod tests {
         let artifact = render_artifact_in(
             r"x^2 + \alpha",
             false,
+            240,
             &Toolchain {
                 latex: failing_latex,
                 dvipng: unused_dvipng,
@@ -533,10 +588,46 @@ mod tests {
         let artifact = render_artifact_in(
             "\n\\int_{-\\infty}^{\\infty} e^{-x^2}\\,dx = \\sqrt{\\pi}\n",
             true,
+            312,
             &toolchain,
             cache.path(),
         )
         .expect("installed PDF toolchain should render the Gaussian integral");
         assert!(artifact.width > 0 && artifact.height > 0);
+    }
+
+    #[test]
+    fn installed_toolchain_scales_simple_math_for_tall_terminal_cells_when_available() {
+        let toolchain = Toolchain::from_environment();
+        let has_pdf_fallback = Command::new(&toolchain.pdflatex)
+            .arg("--version")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success())
+            && Command::new(&toolchain.pdftocairo)
+                .arg("-v")
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .is_ok_and(|status| status.success());
+        if !has_pdf_fallback {
+            return;
+        }
+
+        let cache = tempfile::tempdir().unwrap();
+        let baseline = render_artifact_in("x", false, 180, &toolchain, cache.path())
+            .expect("installed toolchain should render baseline inline math");
+        let readable = render_artifact_in("x", false, 312, &toolchain, cache.path())
+            .expect("installed toolchain should render cell-aware inline math");
+
+        assert!(readable.width > baseline.width);
+        assert!(readable.height > baseline.height);
+        assert!(
+            readable.height * 10 >= baseline.height * 14,
+            "312 DPI should materially increase ink height: baseline={} readable={}",
+            baseline.height,
+            readable.height
+        );
     }
 }

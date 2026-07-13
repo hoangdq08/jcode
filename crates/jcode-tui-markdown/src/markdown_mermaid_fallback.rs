@@ -20,6 +20,10 @@ pub fn image_protocol_available() -> bool {
     false
 }
 
+pub fn get_font_size() -> Option<(u16, u16)> {
+    None
+}
+
 /// Monotonic deferred-render epoch. The fallback renderer never defers, so
 /// the epoch never advances.
 pub fn deferred_render_epoch() -> u64 {
