@@ -44,6 +44,7 @@ function makeDiscoveryBody(overrides = {}) {
     query_present: true,
     reason_present: true,
     custom_endpoint: false,
+    benchmark_run: true,
     ...overrides,
   });
 }
@@ -102,7 +103,7 @@ function makeDb(plan = {}) {
                 "event_id", "request_id", "phase", "category", "selected_tool",
                 "outcome", "failure_reason", "http_status", "latency_ms",
                 "response_bytes", "result_count", "query_present",
-                "reason_present", "custom_endpoint",
+                "reason_present", "custom_endpoint", "benchmark_run",
               ].map((name) => ({ name })),
             };
           }
@@ -194,11 +195,14 @@ test("discovery event is validated, firehosed, and persisted to details", async 
   assert.equal(point.doubles[3], 200);
   assert.equal(point.doubles[4], 125);
   assert.equal(point.doubles[7], 1);
+  assert.equal(point.doubles[10], 1);
 
   const detailInsert = db.executed.find(({ sql }) => /INSERT OR IGNORE INTO discovery_details/.test(sql));
   assert.ok(detailInsert);
   assert.ok(detailInsert.values.includes("11111111-2222-4333-8444-555555555555"));
   assert.ok(detailInsert.values.includes("payments"));
+  const detailColumns = detailInsert.sql.match(/\(([^)]+)\)/)[1].split(", ");
+  assert.equal(detailInsert.values[detailColumns.indexOf("benchmark_run")], 1);
   assert.ok(!detailInsert.values.some((value) => String(value).includes("virtual card")));
 });
 

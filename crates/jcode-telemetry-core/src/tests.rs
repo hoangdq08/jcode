@@ -212,6 +212,7 @@ fn test_discovery_event_serialization_excludes_free_text() {
         result_count: Some(1),
         query_present: true,
         reason_present: true,
+        benchmark_run: true,
         custom_endpoint: false,
         schema_version: TELEMETRY_SCHEMA_VERSION,
         build_channel: "release".to_string(),
@@ -225,6 +226,7 @@ fn test_discovery_event_serialization_excludes_free_text() {
     assert_eq!(json["phase"], "select");
     assert_eq!(json["selected_tool"], "agentcard");
     assert_eq!(json["latency_ms"], 123);
+    assert_eq!(json["benchmark_run"], true);
     assert!(json.get("query").is_none());
     assert!(json.get("reason").is_none());
 }

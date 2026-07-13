@@ -25,7 +25,7 @@ const TELEMETRY_ENDPOINT: &str = "https://jcode-telemetry.jeremyhuang55555.worke
 const ASYNC_SEND_TIMEOUT: Duration = Duration::from_secs(5);
 const BLOCKING_INSTALL_TIMEOUT: Duration = Duration::from_millis(1200);
 const BLOCKING_LIFECYCLE_TIMEOUT: Duration = Duration::from_millis(800);
-const TELEMETRY_SCHEMA_VERSION: u32 = 5;
+const TELEMETRY_SCHEMA_VERSION: u32 = 6;
 const DEFAULT_DISCOVERY_ENDPOINT: &str = "https://api.jcode.sh/v1/discovery";
 static TELEMETRY_PERMANENTLY_REJECTED: AtomicBool = AtomicBool::new(false);
 static TELEMETRY_HTTP_CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
@@ -44,6 +44,7 @@ pub struct DiscoveryTelemetry<'a> {
     pub result_count: Option<u32>,
     pub query_present: bool,
     pub reason_present: bool,
+    pub benchmark_run: bool,
     pub endpoint: &'a str,
 }
 
@@ -507,6 +508,7 @@ pub fn record_discovery_event(data: DiscoveryTelemetry<'_>) {
         result_count: data.result_count,
         query_present: data.query_present,
         reason_present: data.reason_present,
+        benchmark_run: data.benchmark_run,
         custom_endpoint: data.endpoint.trim_end_matches('/') != DEFAULT_DISCOVERY_ENDPOINT,
         schema_version,
         build_channel,

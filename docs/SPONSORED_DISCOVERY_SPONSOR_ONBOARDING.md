@@ -134,6 +134,11 @@ three-second timeout and a 64 KiB maximum response. It sends a
 `User-Agent: jcode/<version>` header and a random
 `x-jcode-discovery-request-id` correlation header.
 
+Runs launched by `scripts/benchmark_discovery.py` also send
+`x-jcode-discovery-benchmark: 1`. The service must retain that marker with its
+request logs so benchmark traffic can be excluded from ordinary discovery and
+sponsor reporting.
+
 The request query parameters are:
 
 | Parameter | Phase | Meaning |

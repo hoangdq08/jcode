@@ -194,7 +194,7 @@ const FIREHOSE_DISCOVERY_SCHEMA = {
   doubles: [
     "is_ci", "is_git_checkout", "ran_from_cargo", "http_status",
     "latency_ms", "response_bytes", "result_count", "query_present",
-    "reason_present", "custom_endpoint",
+    "reason_present", "custom_endpoint", "benchmark_run",
   ],
 };
 
@@ -253,7 +253,7 @@ function writeDiscoveryFirehose(env, body) {
   }
   const boolFields = new Set([
     "is_ci", "is_git_checkout", "ran_from_cargo", "query_present",
-    "reason_present", "custom_endpoint",
+    "reason_present", "custom_endpoint", "benchmark_run",
   ]);
   try {
     sink.writeDataPoint({
@@ -1210,6 +1210,7 @@ async function insertDiscoveryDetails(env, body, columns) {
     ["query_present", boolToInt(body.query_present)],
     ["reason_present", boolToInt(body.reason_present)],
     ["custom_endpoint", boolToInt(body.custom_endpoint)],
+    ["benchmark_run", boolToInt(body.benchmark_run)],
   ].filter(([name]) => columns.has(name));
   if (values.length > 1) {
     await insertDynamic(env, "discovery_details", values);
@@ -1356,6 +1357,7 @@ function normalizeDiscoveryEvent(body) {
   body.latency_ms = Math.max(0, Math.min(300_000, Number(body.latency_ms) || 0));
   body.response_bytes = body.response_bytes == null ? null : Math.max(0, Math.min(1_048_576, Number(body.response_bytes) || 0));
   body.result_count = body.result_count == null ? null : Math.max(0, Math.min(10_000, Number(body.result_count) || 0));
+  body.benchmark_run = body.benchmark_run === true;
   return null;
 }
 

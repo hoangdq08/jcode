@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "agentcard-natural-purchase",
+      "expected_category": "payments",
+      "expected_tool": "agentcard",
+      "prompt": "Buy me a USB-C laptop charger for under $50. Ask me for confirmation immediately before placing the order."
+    },
+    {
+      "id": "context-dev-website-enrichment",
+      "expected_category": "web-data",
+      "expected_tool": "context.dev",
+      "prompt": "Set up a production pipeline that monitors 100 company websites daily and keeps a structured JSON record of each company's logo, colors, fonts, description, social profiles, and pricing."
+    }
+  ]
+}

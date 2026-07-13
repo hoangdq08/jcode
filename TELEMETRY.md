@@ -77,11 +77,16 @@ without exposing prompts or a persistent telemetry identifier to that service.
 | `result_count` | `3` | Number of browse results, or one for selection |
 | `query_present` / `reason_present` | `true` / `true` | Presence flags only |
 | `custom_endpoint` | `false` | Whether a non-default discovery endpoint was configured |
+| `benchmark_run` | `false` | Explicit marker set by the live Discovery benchmark so it can be excluded from ordinary usage analysis |
 
 The query text, selection-reason text, endpoint URL, prompts, transcript, file
 paths, and tool setup instructions are **not** included in telemetry. The
 backend rejects unknown phase, outcome, and failure labels rather than storing
 arbitrary strings.
+
+The benchmark runner sets `JCODE_DISCOVERY_BENCHMARK=1`. Discovery requests then
+carry `x-jcode-discovery-benchmark: 1`, and the corresponding telemetry event has
+`benchmark_run: true`.
 
 ### Session Start Event
 

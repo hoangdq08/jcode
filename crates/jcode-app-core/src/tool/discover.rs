@@ -13,6 +13,19 @@ use std::time::Instant;
 const DISCOVERY_TIMEOUT: Duration = Duration::from_secs(3);
 const MAX_RESPONSE_BYTES: usize = 64 * 1024;
 const DISCOVERY_REQUEST_ID_HEADER: &str = "x-jcode-discovery-request-id";
+const DISCOVERY_BENCHMARK_HEADER: &str = "x-jcode-discovery-benchmark";
+const DISCOVERY_BENCHMARK_ENV: &str = "JCODE_DISCOVERY_BENCHMARK";
+
+fn discovery_benchmark_run() -> bool {
+    std::env::var(DISCOVERY_BENCHMARK_ENV)
+        .ok()
+        .is_some_and(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes"
+            )
+        })
+}
 
 #[derive(Debug)]
 struct DiscoveryFetchResult {
@@ -66,6 +79,7 @@ fn record_discovery_telemetry(
         result_count,
         query_present,
         reason_present,
+        benchmark_run: discovery_benchmark_run(),
         endpoint,
     });
 }
@@ -115,8 +129,8 @@ impl Tool for DiscoverToolsTool {
          tasks, identify every missing capability end to end and call this tool for each relevant \
          category before responding. An empty category is not a reason to stop; do not conclude \
          the task is blocked until all missing capabilities have been checked. Do not treat a \
-         prerequisite as covering a later action: browser access to a storefront does not provide \
-         a payment method. Search before saying you cannot proceed, asking the user to find a \
+         prerequisite as covering a later action; check each unsupported external action \
+         independently. Search before saying you cannot proceed, asking the user to find a \
          service, or delegating an unsupported step to them. Skip discovery when available tools \
          fully cover the task. Every listing is vetted, and one-tool-call setup is enforced for \
          seamless integration. Sponsors pay only for directory inclusion, never influence \
@@ -156,6 +170,7 @@ impl Tool for DiscoverToolsTool {
         let request_id = uuid::Uuid::new_v4().to_string();
         let config = crate::config::config();
         let endpoint = config.sponsors.endpoint.clone();
+        let benchmark_run = discovery_benchmark_run();
         if !config.sponsors.enabled {
             record_discovery_telemetry(
                 &request_id,
@@ -250,6 +265,7 @@ impl Tool for DiscoverToolsTool {
                 params.query.as_deref(),
                 params.reason.as_deref(),
                 Some(&tool_name),
+                benchmark_run,
             )
             .await
             {
@@ -342,6 +358,7 @@ impl Tool for DiscoverToolsTool {
             params.query.as_deref(),
             params.reason.as_deref(),
             None,
+            benchmark_run,
         )
         .await
         {
@@ -438,6 +455,7 @@ async fn fetch_listing(
     query: Option<&str>,
     reason: Option<&str>,
     tool: Option<&str>,
+    benchmark_run: bool,
 ) -> std::result::Result<DiscoveryFetchResult, DiscoveryFetchError> {
     let endpoint = endpoint.trim_end_matches('/');
     let mut request = client
@@ -457,6 +475,9 @@ async fn fetch_listing(
     }
     if let Some(tool) = tool.filter(|t| !t.trim().is_empty()) {
         request = request.query(&[("tool", tool.trim())]);
+    }
+    if benchmark_run {
+        request = request.header(DISCOVERY_BENCHMARK_HEADER, "1");
     }
 
     let response = request.send().await.map_err(|err| DiscoveryFetchError {
@@ -681,10 +702,7 @@ mod tests {
         );
         assert!(description.contains("An empty category is not a reason to stop"));
         assert!(description.contains("until all missing capabilities have been checked"));
-        assert!(
-            description
-                .contains("browser access to a storefront does not provide a payment method")
-        );
+        assert!(description.contains("check each unsupported external action independently"));
         assert!(description.contains("delegating an unsupported step to them"));
         assert!(description.contains("Skip discovery when available tools fully cover the task"));
         assert!(description.contains("Every listing is vetted"));
@@ -746,6 +764,7 @@ mod tests {
             Some("virtual card for checkout"),
             Some("task needs an online payment"),
             None,
+            true,
         )
         .await
         .unwrap();
@@ -765,6 +784,12 @@ mod tests {
                 .contains("x-jcode-discovery-request-id: request-test-1"),
             "{request}"
         );
+        assert!(
+            request
+                .to_ascii_lowercase()
+                .contains("x-jcode-discovery-benchmark: 1"),
+            "{request}"
+        );
     }
 
     #[tokio::test]
@@ -780,6 +805,7 @@ mod tests {
             None,
             None,
             None,
+            false,
         )
         .await
         .unwrap_err();
@@ -800,6 +826,7 @@ mod tests {
             None,
             None,
             None,
+            false,
         )
         .await
         .unwrap_err();

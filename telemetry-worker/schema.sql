@@ -167,6 +167,7 @@ CREATE TABLE IF NOT EXISTS discovery_details (
     query_present INTEGER NOT NULL DEFAULT 0,
     reason_present INTEGER NOT NULL DEFAULT 0,
     custom_endpoint INTEGER NOT NULL DEFAULT 0,
+    benchmark_run INTEGER NOT NULL DEFAULT 0,
     FOREIGN KEY (event_id) REFERENCES events(event_id)
 );
 
@@ -175,6 +176,7 @@ CREATE INDEX IF NOT EXISTS idx_discovery_phase_outcome ON discovery_details(phas
 CREATE INDEX IF NOT EXISTS idx_discovery_category_outcome ON discovery_details(category, outcome);
 CREATE INDEX IF NOT EXISTS idx_discovery_selected_tool ON discovery_details(selected_tool);
 CREATE INDEX IF NOT EXISTS idx_discovery_failure_reason ON discovery_details(failure_reason);
+CREATE INDEX IF NOT EXISTS idx_discovery_benchmark_run ON discovery_details(benchmark_run);
 
 CREATE TABLE IF NOT EXISTS session_details (
     event_id TEXT PRIMARY KEY,
