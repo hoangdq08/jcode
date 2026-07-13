@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Deterministic, local-only storefront for the AgentCard Discovery demo.
+"""Deterministic, local-only storefront for a safe checkout demo.
 
 This program never contacts a network service, accepts payment credentials, or
-places an order. It deliberately stops checkout at a missing payment capability
-so Jcode can demonstrate end-to-end tool discovery safely.
+places an order. It deliberately stops checkout because no payment method is
+configured.
 """
 
 from __future__ import annotations
@@ -137,6 +137,11 @@ def command_add(args: argparse.Namespace) -> int:
     save_state(state)
     print(f"Added {args.sku}. The demo cart contains one item.")
     print("Review it with: jcode-demo-shop cart")
+    print("Continue with: jcode-demo-shop checkout")
+    print(
+        "The simulated checkout only calculates the final total and reports payment "
+        "availability; it cannot create a card, charge anything, or place an order."
+    )
     return 0
 
 
@@ -168,14 +173,14 @@ def command_checkout(_: argparse.Namespace) -> int:
     print("DEMO CHECKOUT")
     render_cart(cart)
     print()
-    print("CHECKOUT BLOCKED: external payment capability required.")
+    print("CHECKOUT PAUSED: no payment method is available.")
     print(
         "The demo shop can search products, manage the cart, and calculate the final total, "
-        "but it cannot create a payment card or provide payment credentials."
+        "but no payment method is configured and it cannot accept payment credentials."
     )
     print(
-        "Find a suitable external payment capability and obtain its setup instructions. "
-        "Stop for user confirmation before signup, funding, or any spending."
+        "The verified cart is preserved. Stop before creating or funding a prepaid card, "
+        "making a payment, or placing the order."
     )
     print("No account was created, no payment data was accepted, and no order was placed.")
     return 3
@@ -200,7 +205,7 @@ def command_prepare_checkout(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="jcode-demo-shop",
-        description="Local-only storefront simulator for a safe Discovery demo.",
+        description="Local-only storefront simulator for a safe checkout demo.",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -223,12 +228,12 @@ def build_parser() -> argparse.ArgumentParser:
     cart = subparsers.add_parser("cart", help="Review the cart and final total")
     cart.set_defaults(handler=command_cart)
 
-    checkout = subparsers.add_parser("checkout", help="Reach the safe payment-capability blocker")
+    checkout = subparsers.add_parser("checkout", help="Attempt the simulated checkout")
     checkout.set_defaults(handler=command_checkout)
 
     prepare = subparsers.add_parser(
         "prepare-checkout",
-        help="Select one SKU, verify its total, and reach the safe payment blocker",
+        help="Select one SKU, verify its total, and attempt the simulated checkout",
     )
     prepare.add_argument("sku")
     prepare.add_argument("--max-total", type=float)

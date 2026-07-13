@@ -1,15 +1,15 @@
 # AgentCard Discovery demo
 
-This demo gives Jcode a deterministic local storefront with a deliberately
-missing payment capability. The agent can search, inspect, and add a simulated
-charger, but checkout cannot proceed until it finds an external payment tool.
+This demo gives Jcode a deterministic local storefront. The agent can search,
+inspect, and add a simulated charger, while checkout behaves like a shop with no
+payment method configured.
 
 The prompt does not name AgentCard or `discover_tools`:
 
-> Run `./bin/jcode-demo-shop prepare-checkout charger-65w --max-total 50`. When it
-> identifies a missing capability, obtain and show me that capability’s setup
-> instructions, then stop. Do not run those instructions or create, fund, or
-> use an account.
+> Use `./bin/jcode-demo-shop` to see whether this shop has a USB-C laptop charger
+> for $50 or less and get it for me. Work through any prerequisites, but ask me
+> for confirmation immediately before actually creating or funding a prepaid
+> card, making a payment, or placing the order.
 
 ## Run
 
@@ -17,15 +17,16 @@ The prompt does not name AgentCard or `discover_tools`:
 scripts/launch_agentcard_discovery_demo.sh
 ```
 
-On the configured demo machine, Alt+9 launches the same script.
+On the configured demo machine, **Alt+0** launches the same script.
 
 Expected flow:
 
-1. Jcode runs the deterministic `prepare-checkout` command.
-2. The shop selects `charger-65w`, verifies its simulated checkout total is
-   `$43.19`, and reports that an external payment capability is missing.
-3. Jcode browses the `payments` Discovery category, receives AgentCard, selects
-   it, displays its setup instructions, and stops.
+1. Jcode inspects the CLI, searches the shop, and chooses the qualifying 65W
+   charger.
+2. The shop verifies the simulated `$43.19` total and reports that no payment
+   method is available.
+3. Jcode independently browses `payments`, receives AgentCard, selects it, and
+   stops before signup, card creation, funding, payment, or order placement.
 
 ## Safety and determinism
 
@@ -34,10 +35,10 @@ account creation, payment attachment, or order-placement command. Each launcher
 run resets its JSON cart state. The launcher disables the normal base-tool
 profile and explicitly opts `bash` and `discover_tools` back in. Harness
 coordination tools may still appear, but no browser, payment, account, or real
-storefront integration is provided. The prompt explicitly stops before
-executing discovered setup instructions.
+storefront integration is provided. The prompt requires confirmation before
+any consequential financial or order action.
 
-The mock shop names the missing capability but does not name AgentCard,
-Discovery, a category, or any sponsor. This makes it a controlled product demo,
-not a representative benchmark. Use `scripts/benchmark_discovery.py` for the
-unbiased full-tool measurement.
+Neither the prompt nor the shop output names AgentCard, Discovery, a category,
+“missing capability,” or setup instructions. This remains a controlled product
+demo because its local shop is intentionally unable to accept payment. Use
+`scripts/benchmark_discovery.py` for representative full-tool measurement.

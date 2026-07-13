@@ -7,7 +7,7 @@ JCODE_BIN="${JCODE_BIN:-$HOME/.local/bin/jcode}"
 DEMO_DIR="${JCODE_AGENTCARD_DEMO_DIR:-/tmp/jcode-agentcard-discovery-demo}"
 MODEL="${JCODE_AGENTCARD_DEMO_MODEL:-gpt-5.6-sol}"
 LOG_FILE="${JCODE_AGENTCARD_DEMO_LOG:-/tmp/jcode-agentcard-discovery-demo.log}"
-PROMPT='Run `./bin/jcode-demo-shop prepare-checkout charger-65w --max-total 50`. When it identifies a missing capability, obtain and show me that capability’s setup instructions, then stop. Do not run those instructions or create, fund, or use an account.'
+PROMPT='Use `./bin/jcode-demo-shop` to see whether this shop has a USB-C laptop charger for $50 or less and get it for me. Work through any prerequisites, but ask me for confirmation immediately before actually creating or funding a prepaid card, making a payment, or placing the order.'
 
 case "${1:-}" in
   --help|-h)

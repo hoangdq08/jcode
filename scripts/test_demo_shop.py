@@ -48,9 +48,11 @@ class DemoShopTests(unittest.TestCase):
         self.assertEqual(added.returncode, 0, added.stderr)
         self.assertEqual(checkout.returncode, 3)
         self.assertIn("Checkout total: $43.19", checkout.stdout)
-        self.assertIn("external payment capability required", checkout.stdout)
-        self.assertIn("obtain its setup instructions", checkout.stdout)
+        self.assertIn("no payment method is available", checkout.stdout)
+        self.assertIn("stop before creating or funding a prepaid card", checkout.stdout.lower())
         self.assertIn("No account was created", checkout.stdout)
+        self.assertNotIn("capability", checkout.stdout.lower())
+        self.assertNotIn("setup instructions", checkout.stdout.lower())
         self.assertNotIn("agentcard", checkout.stdout.lower())
         self.assertNotIn("discover_tools", checkout.stdout.lower())
 
@@ -66,7 +68,7 @@ class DemoShopTests(unittest.TestCase):
             )
         self.assertEqual(result.returncode, 3)
         self.assertIn("Checkout total: $43.19", result.stdout)
-        self.assertIn("external payment capability required", result.stdout)
+        self.assertIn("no payment method is available", result.stdout)
 
     def test_prepare_checkout_enforces_total_limit(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -100,10 +102,18 @@ class DemoShopTests(unittest.TestCase):
             if line.startswith("PROMPT=")
         )
         lowered = prompt_line.lower()
-        self.assertIn("./bin/jcode-demo-shop prepare-checkout", prompt_line)
+        self.assertIn("Use `./bin/jcode-demo-shop`", prompt_line)
+        self.assertIn("USB-C laptop charger", prompt_line)
+        self.assertIn("work through any prerequisites", lowered)
+        self.assertIn("ask me for confirmation immediately before", lowered)
+        self.assertIn("prepaid card", lowered)
         self.assertNotIn("agentcard", lowered)
         self.assertNotIn("discover_tools", lowered)
         self.assertNotIn("discovery", lowered)
+        self.assertNotIn("missing capability", lowered)
+        self.assertNotIn("setup instructions", lowered)
+        self.assertNotIn("prepare-checkout", lowered)
+        self.assertNotIn("charger-65w", lowered)
 
 
 if __name__ == "__main__":
