@@ -238,16 +238,16 @@ pub(super) fn read_install_conversion_id() -> Option<String> {
         .ok()
         .is_some_and(install_conversion_id_is_fresh);
     if !fresh {
-        let _ = std::fs::remove_file(&path);
+        clear_install_conversion_id();
         return None;
     }
     let value = std::fs::read_to_string(&path).ok()?;
     let Ok(parsed) = uuid::Uuid::parse_str(value.trim()) else {
-        let _ = std::fs::remove_file(&path);
+        clear_install_conversion_id();
         return None;
     };
     if parsed.get_version() != Some(uuid::Version::Random) {
-        let _ = std::fs::remove_file(&path);
+        clear_install_conversion_id();
         return None;
     }
     Some(parsed.to_string())
