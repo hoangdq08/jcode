@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const HOOK_COMMAND_PREFIX: &str = "jcode setup-hotkey --notify-cli-launch ";
+const HOOK_COMMAND_MARKER: &str = "setup-hotkey --notify-cli-launch ";
 const REMINDER_COOLDOWN_SECS: u64 = 7 * 24 * 60 * 60;
 const MAX_REMINDERS_PER_SOURCE: u64 = 3;
 
@@ -189,7 +189,8 @@ fn install_hook(path: &Path, source: CliSource) -> Result<()> {
         json!({})
     };
 
-    if !upsert_hook(&mut root, source)? {
+    let command = hook_command(source)?;
+    if !upsert_hook(&mut root, &command)? {
         return Ok(());
     }
 
@@ -204,7 +205,7 @@ fn install_hook(path: &Path, source: CliSource) -> Result<()> {
     Ok(())
 }
 
-fn upsert_hook(root: &mut Value, source: CliSource) -> Result<bool> {
+fn upsert_hook(root: &mut Value, command: &str) -> Result<bool> {
     let root_obj = root
         .as_object_mut()
         .context("hook config root must be a JSON object")?;
@@ -217,7 +218,6 @@ fn upsert_hook(root: &mut Value, source: CliSource) -> Result<bool> {
         .as_array_mut()
         .context("hook config `hooks.SessionStart` must be an array")?;
 
-    let command = format!("{HOOK_COMMAND_PREFIX}{}", source.id());
     let desired = json!({
         "matcher": "startup|resume",
         "hooks": [{
@@ -235,7 +235,7 @@ fn upsert_hook(root: &mut Value, source: CliSource) -> Result<bool> {
             handler
                 .get("command")
                 .and_then(Value::as_str)
-                .is_some_and(|value| value.contains(HOOK_COMMAND_PREFIX))
+                .is_some_and(|value| value.contains(HOOK_COMMAND_MARKER))
         }) else {
             continue;
         };
@@ -261,6 +261,58 @@ fn upsert_hook(root: &mut Value, source: CliSource) -> Result<bool> {
 
     groups.push(desired);
     Ok(true)
+}
+
+fn hook_command(source: CliSource) -> Result<String> {
+    let executable = trusted_jcode_executable()?;
+    Ok(format!(
+        "{} {HOOK_COMMAND_MARKER}{}",
+        quote_hook_executable(&executable),
+        source.id()
+    ))
+}
+
+/// Prefer the stable launcher path so upgrades keep working, while avoiding a
+/// bare `jcode` lookup in the external CLI's project-scoped PATH. Falling back
+/// to the current absolute executable is still safer than shell resolution and
+/// remains valid for immutable release/self-dev build channels.
+fn trusted_jcode_executable() -> Result<PathBuf> {
+    #[cfg(windows)]
+    {
+        if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
+            let launcher = PathBuf::from(local_app_data)
+                .join("jcode")
+                .join("bin")
+                .join("jcode.exe");
+            if launcher.is_file() {
+                return Ok(launcher);
+            }
+        }
+    }
+
+    #[cfg(not(windows))]
+    {
+        if let Some(home) = dirs::home_dir() {
+            let launcher = home.join(".local").join("bin").join("jcode");
+            if launcher.is_file() {
+                return Ok(launcher);
+            }
+        }
+    }
+
+    std::env::current_exe().context("resolving the Jcode executable for lifecycle hooks")
+}
+
+fn quote_hook_executable(path: &Path) -> String {
+    let value = path.to_string_lossy();
+    #[cfg(windows)]
+    {
+        format!("\"{}\"", value.replace('"', "\\\""))
+    }
+    #[cfg(not(windows))]
+    {
+        format!("'{}'", value.replace('\'', "'\\''"))
+    }
 }
 
 fn send_desktop_notification(title: &str, body: &str) {
@@ -339,20 +391,22 @@ mod tests {
                 "Stop": [{"hooks": [{"type": "command", "command": "echo stop"}]}]
             }
         });
-        assert!(upsert_hook(&mut value, CliSource::Claude).unwrap());
+        let command = "'/trusted/jcode' setup-hotkey --notify-cli-launch claude";
+        assert!(upsert_hook(&mut value, command).unwrap());
         assert_eq!(value["hooks"]["SessionStart"].as_array().unwrap().len(), 2);
         assert_eq!(value["hooks"]["Stop"].as_array().unwrap().len(), 1);
         assert_eq!(
             value["hooks"]["SessionStart"][1]["hooks"][0]["command"],
-            "jcode setup-hotkey --notify-cli-launch claude"
+            command
         );
     }
 
     #[test]
     fn managed_hook_update_is_idempotent() {
         let mut value = json!({});
-        assert!(upsert_hook(&mut value, CliSource::Codex).unwrap());
-        assert!(!upsert_hook(&mut value, CliSource::Codex).unwrap());
+        let command = "'/trusted/jcode' setup-hotkey --notify-cli-launch codex";
+        assert!(upsert_hook(&mut value, command).unwrap());
+        assert!(!upsert_hook(&mut value, command).unwrap());
         assert_eq!(value["hooks"]["SessionStart"].as_array().unwrap().len(), 1);
     }
 
@@ -373,15 +427,13 @@ mod tests {
                 }]
             }
         });
-        assert!(upsert_hook(&mut value, CliSource::Codex).unwrap());
+        let command = "'/trusted/jcode' setup-hotkey --notify-cli-launch codex";
+        assert!(upsert_hook(&mut value, command).unwrap());
         let group = &value["hooks"]["SessionStart"][0];
         assert_eq!(group["matcher"], "startup|resume|clear");
         assert_eq!(group["hooks"].as_array().unwrap().len(), 2);
         assert_eq!(group["hooks"][1]["command"], "echo user-owned");
-        assert_eq!(
-            group["hooks"][0]["command"],
-            "jcode setup-hotkey --notify-cli-launch codex"
-        );
+        assert_eq!(group["hooks"][0]["command"], command);
     }
 
     #[test]
@@ -423,7 +475,13 @@ mod tests {
     #[test]
     fn rejects_malformed_hook_shape_instead_of_clobbering_it() {
         let mut value = json!({"hooks": {"SessionStart": {}}});
-        assert!(upsert_hook(&mut value, CliSource::Claude).is_err());
+        assert!(
+            upsert_hook(
+                &mut value,
+                "'/trusted/jcode' setup-hotkey --notify-cli-launch claude"
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -445,12 +503,22 @@ mod tests {
         let parsed: Value = serde_json::from_slice(&first).unwrap();
         assert_eq!(parsed["theme"], "dark");
         assert_eq!(parsed["hooks"]["Stop"].as_array().unwrap().len(), 1);
-        assert_eq!(
-            parsed["hooks"]["SessionStart"][0]["hooks"][0]["command"],
-            "jcode setup-hotkey --notify-cli-launch claude"
-        );
+        let command = parsed["hooks"]["SessionStart"][0]["hooks"][0]["command"]
+            .as_str()
+            .unwrap();
+        assert!(command.contains(HOOK_COMMAND_MARKER));
+        assert!(!command.starts_with("jcode "));
 
         install_hook(&path, CliSource::Claude).unwrap();
         assert_eq!(std::fs::read(&path).unwrap(), first);
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn unix_hook_executable_quoting_handles_spaces_and_single_quotes() {
+        assert_eq!(
+            quote_hook_executable(Path::new("/tmp/Jcode's bin/jcode")),
+            "'/tmp/Jcode'\\''s bin/jcode'"
+        );
     }
 }
