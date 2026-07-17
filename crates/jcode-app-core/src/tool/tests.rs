@@ -700,3 +700,71 @@ async fn gemini_build_tools_from_registry_definitions_omits_const_keywords() {
         "const"
     ));
 }
+
+/// End-to-end plumbing test: proves the *real* (non-test-mode) memory tool,
+/// invoked through `Registry::execute`, actually persists a project-scoped
+/// memory keyed by `ctx.working_dir` and reads it back in-process.
+///
+/// This is the link the tool-level unit test cannot cover: it exercises the
+/// real `MemoryTool::new()` registered at `tool/mod.rs` (not `new_test`, whose
+/// test_mode makes `project_memory_path` always Some and thus hides the bug),
+/// and confirms the registry forwards `ctx.working_dir` down to the tool.
+#[tokio::test]
+async fn registry_memory_tool_persists_project_scope_via_working_dir() {
+    let _guard = crate::storage::lock_test_env();
+    let home = tempfile::tempdir().expect("temp home");
+    let project = tempfile::tempdir().expect("temp project");
+    let prev_home = std::env::var_os("JCODE_HOME");
+    crate::env::set_var("JCODE_HOME", home.path());
+
+    let provider: Arc<dyn Provider> = Arc::new(MockProvider);
+    let registry = Registry::new(provider).await;
+
+    let ctx = ToolContext {
+        session_id: "test-memory-registry-e2e".to_string(),
+        message_id: "test".to_string(),
+        tool_call_id: "test".to_string(),
+        working_dir: Some(project.path().to_path_buf()),
+        stdin_request_tx: None,
+        graceful_shutdown_signal: None,
+        execution_mode: ToolExecutionMode::Direct,
+    };
+
+    let remembered = registry
+        .execute(
+            "memory",
+            serde_json::json!({
+                "action": "remember",
+                "content": "registry-e2e probe fact",
+                "scope": "project"
+            }),
+            ctx.clone(),
+        )
+        .await
+        .expect("remember via registry should succeed");
+    assert!(
+        remembered.output.contains("Remembered"),
+        "unexpected remember output: {}",
+        remembered.output
+    );
+
+    let listed = registry
+        .execute(
+            "memory",
+            serde_json::json!({ "action": "list", "scope": "project" }),
+            ctx.clone(),
+        )
+        .await
+        .expect("list via registry should succeed");
+
+    match prev_home {
+        Some(v) => crate::env::set_var("JCODE_HOME", v),
+        None => crate::env::remove_var("JCODE_HOME"),
+    }
+
+    assert!(
+        listed.output.contains("registry-e2e probe fact"),
+        "project memory written through the registry was not read back: {}",
+        listed.output
+    );
+}

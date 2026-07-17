@@ -1292,7 +1292,7 @@ impl crate::tui::TuiState for App {
             }
         });
 
-        let memory_info = gather_memory_info(self.memory_enabled);
+        let memory_info = gather_memory_info(self.memory_enabled, self.working_dir());
 
         // Gather swarm info
         let swarm_info = if self.swarm_enabled {
