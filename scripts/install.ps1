@@ -5,10 +5,10 @@
     Downloads the latest jcode release and installs it to %LOCALAPPDATA%\jcode\bin.
 
     One-liner install:
-      irm https://raw.githubusercontent.com/1jehuang/jcode/master/scripts/install.ps1 | iex
+      irm https://jcode.sh/install.ps1 | iex
 
     Or download and run (allows parameters):
-      & ([scriptblock]::Create((irm https://raw.githubusercontent.com/1jehuang/jcode/master/scripts/install.ps1)))
+      & ([scriptblock]::Create((irm https://jcode.sh/install.ps1)))
 .PARAMETER InstallDir
     Override the installation directory (default: $env:LOCALAPPDATA\jcode\bin)
 .PARAMETER Version
@@ -49,6 +49,11 @@ if ($PSVersionTable.PSVersion.Major -lt 5) {
 }
 
 $Repo = "1jehuang/jcode"
+$ReleaseMetadataBase = if ($env:JCODE_RELEASE_METADATA_BASE) {
+    $env:JCODE_RELEASE_METADATA_BASE.TrimEnd('/')
+} else {
+    "https://jcode.sh/releases"
+}
 
 if (-not $InstallDir) {
     $localAppData = if ($env:LOCALAPPDATA) { $env:LOCALAPPDATA } else { [Environment]::GetFolderPath([Environment+SpecialFolder]::LocalApplicationData) }
@@ -71,6 +76,10 @@ function Write-Info($msg) { Write-Host $msg -ForegroundColor Blue }
 function Write-Err($msg) { throw "error: $msg" }
 function Write-Warn($msg) { Write-Host "warning: $msg" -ForegroundColor Yellow }
 
+function Test-JcodeReleaseTag([string]$Tag) {
+    return [bool]($Tag -match '^v[0-9]+\.[0-9]+\.[0-9]+(?:[+.-][A-Za-z0-9.-]+)?$')
+}
+
 function Resolve-JcodeReleaseTagFromUri([string]$Uri) {
     if (-not $Uri) { return $null }
     if ($Uri -match '/releases/tag/([^/?#]+)') {
@@ -82,6 +91,13 @@ function Resolve-JcodeReleaseTagFromUri([string]$Uri) {
 function Get-LatestJcodeReleaseTag {
     # Avoid api.github.com here. Its unauthenticated limit is only 60 requests
     # per public IP per hour, so installs are unreliable behind shared NAT/VPNs.
+    $metadataTag = $null
+    try {
+        $metadataResponse = Invoke-WebRequest -UseBasicParsing -Uri "$ReleaseMetadataBase/latest/version"
+        $candidate = ([string]$metadataResponse.Content).Trim()
+        if (Test-JcodeReleaseTag $candidate) { $metadataTag = $candidate }
+    } catch {}
+
     try {
         $response = Invoke-WebRequest -UseBasicParsing -Method Head -Uri "https://github.com/$Repo/releases/latest"
         $baseResponse = $response.BaseResponse
@@ -103,10 +119,34 @@ function Get-LatestJcodeReleaseTag {
 
         $tag = Resolve-JcodeReleaseTagFromUri $resolvedUri
         if ($tag) { return $tag }
-        Write-Err "GitHub did not redirect releases/latest to a version tag"
     } catch {
-        Write-Err "Failed to determine latest version: $_"
+        if (-not $metadataTag) {
+            Write-Err "Failed to determine latest version: $_"
+        }
     }
+
+    if ($metadataTag) {
+        Write-Warn "GitHub release lookup unavailable; using cached jcode.sh metadata ($metadataTag)."
+        return $metadataTag
+    }
+    Write-Err "Failed to determine latest version"
+}
+
+function Get-JcodeReleaseDownloadBases([string]$ReleaseTag) {
+    $bases = New-Object System.Collections.Generic.List[string]
+    try {
+        $response = Invoke-WebRequest -UseBasicParsing -Uri "$ReleaseMetadataBase/$ReleaseTag/download-bases"
+        foreach ($line in ([string]$response.Content -split "`r?`n")) {
+            $candidate = $line.Trim().TrimEnd('/')
+            if ($candidate -match '^https://\S+$' -and -not $bases.Contains($candidate)) {
+                $bases.Add($candidate)
+            }
+        }
+    } catch {}
+
+    $githubBase = "https://github.com/$Repo/releases/download/$ReleaseTag"
+    if (-not $bases.Contains($githubBase)) { $bases.Add($githubBase) }
+    return $bases.ToArray()
 }
 
 function Get-JcodeSha256FromManifest {
@@ -128,17 +168,23 @@ function Get-JcodeSha256FromManifest {
 }
 
 function Get-ReleaseChecksum([string]$ReleaseTag, [string]$AssetName) {
-    $checksumUrl = "https://github.com/$Repo/releases/download/$ReleaseTag/SHA256SUMS"
-    try {
-        $response = Invoke-WebRequest -UseBasicParsing -Uri $checksumUrl
-        $contents = [string]$response.Content
-    } catch {
-        Write-Err "Could not download SHA256SUMS for $ReleaseTag. Refusing to install an unverified download: $_"
+    $lastError = $null
+    foreach ($checksumUrl in @(
+        "$ReleaseMetadataBase/$ReleaseTag/SHA256SUMS",
+        "https://github.com/$Repo/releases/download/$ReleaseTag/SHA256SUMS"
+    )) {
+        try {
+            $response = Invoke-WebRequest -UseBasicParsing -Uri $checksumUrl
+            $expected = Get-JcodeSha256FromManifest -ManifestText ([string]$response.Content) -AssetName $AssetName
+            if ($expected) { return $expected }
+        } catch {
+            $lastError = $_
+        }
     }
 
-    $expected = Get-JcodeSha256FromManifest -ManifestText $contents -AssetName $AssetName
-    if ($expected) { return $expected }
-
+    if ($lastError) {
+        Write-Err "Could not download SHA256SUMS for $ReleaseTag. Refusing to install an unverified download: $lastError"
+    }
     Write-Err "SHA256SUMS for $ReleaseTag does not list $AssetName"
 }
 
@@ -853,8 +899,7 @@ if (-not $Version) {
 if (-not $Version) { Write-Err "Failed to determine latest version" }
 
 $VersionNum = $Version.TrimStart('v')
-$TgzUrl = "https://github.com/$Repo/releases/download/$Version/$Artifact.tar.gz"
-$ExeUrl = "https://github.com/$Repo/releases/download/$Version/$Artifact.exe"
+$DownloadBases = Get-JcodeReleaseDownloadBases $Version
 
 $BuildsDir = Join-Path (Get-JcodeLocalAppDataDir) "jcode\builds"
 $StableDir = Join-Path $BuildsDir "stable"
@@ -898,20 +943,20 @@ if ($ResolvedArtifactExePath) {
     Copy-Item -Path $ResolvedArtifactTgzPath -Destination $DownloadPath -Force
     $DownloadMode = "tar"
 } else {
-    try {
-        Write-Info "Downloading $Artifact.exe..."
-        Invoke-WebRequest -UseBasicParsing -Uri $ExeUrl -OutFile $DownloadPath
-        $DownloadMode = "bin"
-        $DownloadedAssetName = "$Artifact.exe"
-    } catch {
-        try {
-            Write-Info "Trying archive download..."
-            Invoke-WebRequest -UseBasicParsing -Uri $TgzUrl -OutFile $DownloadPath
-            $DownloadMode = "tar"
-            $DownloadedAssetName = "$Artifact.tar.gz"
-        } catch {
-            $DownloadMode = ""
+    foreach ($candidate in @(
+        @{ Name = "$Artifact.exe"; Mode = "bin" },
+        @{ Name = "$Artifact.tar.gz"; Mode = "tar" }
+    )) {
+        foreach ($base in $DownloadBases) {
+            try {
+                Write-Info "Downloading $($candidate.Name) from $base..."
+                Invoke-WebRequest -UseBasicParsing -Uri "$base/$($candidate.Name)" -OutFile $DownloadPath
+                $DownloadMode = $candidate.Mode
+                $DownloadedAssetName = $candidate.Name
+                break
+            } catch {}
         }
+        if ($DownloadMode) { break }
     }
 }
 

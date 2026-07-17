@@ -126,7 +126,7 @@ fi
 
 info "jcode uninstalled."
 if [ "$PURGE" = false ]; then
-  info "Reinstall with: curl -fsSL https://raw.githubusercontent.com/1jehuang/jcode/master/scripts/install.sh | bash"
+  info "Reinstall with: curl -fsSL https://jcode.sh/install | bash"
 else
-  info "All jcode data wiped. Reinstall with: curl -fsSL https://raw.githubusercontent.com/1jehuang/jcode/master/scripts/install.sh | bash"
+  info "All jcode data wiped. Reinstall with: curl -fsSL https://jcode.sh/install | bash"
 fi

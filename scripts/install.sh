@@ -2,6 +2,7 @@
 set -euo pipefail
 
 REPO="1jehuang/jcode"
+RELEASE_METADATA_BASE="${JCODE_RELEASE_METADATA_BASE:-https://jcode.sh/releases}"
 IS_WINDOWS=false
 IS_TERMUX=false
 INSTALL_STAGE="startup"
@@ -13,6 +14,23 @@ tmpdir=""
 
 info() { printf '\033[1;34m%s\033[0m\n' "$*"; }
 err()  { printf '\033[1;31merror: %s\033[0m\n' "$*" >&2; exit 1; }
+
+valid_release_tag() {
+  printf '%s' "$1" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+([+.-][[:alnum:].-]+)?$'
+}
+
+sha256_file() {
+  file="$1"
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$file" | awk '{print tolower($1)}'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$file" | awk '{print tolower($1)}'
+  elif command -v openssl >/dev/null 2>&1; then
+    openssl dgst -sha256 "$file" | awk '{print tolower($NF)}'
+  else
+    return 1
+  fi
+}
 
 valid_conversion_id() {
   printf '%s' "${JCODE_INSTALL_CONVERSION_ID:-}" |
@@ -130,20 +148,32 @@ else
   INSTALL_DIR="${JCODE_INSTALL_DIR:-$HOME/.local/bin}"
 fi
 
-# Resolve GitHub's stable `releases/latest` redirect instead of using the
-# unauthenticated GitHub API. The API only permits 60 requests per public IP
-# per hour, which makes installs fail with HTTP 403 on shared networks/VPNs.
+# Prefer GitHub's stable redirect when it is reachable so publication changes
+# are visible immediately. jcode.sh keeps a static copy of the latest published
+# tag as an independent fallback for GitHub outages, blocks, and shared-network
+# throttling. Neither path uses the rate-limited unauthenticated GitHub API.
 INSTALL_STAGE="release_lookup"
-LATEST_RELEASE_URL=$(curl -fsSIL -o /dev/null -w '%{url_effective}' "https://github.com/$REPO/releases/latest")
-case "$LATEST_RELEASE_URL" in
-  */releases/tag/*) VERSION="${LATEST_RELEASE_URL##*/}" ;;
-  *) VERSION="" ;;
-esac
-[ -n "$VERSION" ] || err "Failed to determine latest version"
+VERSION="${JCODE_VERSION:-}"
+if [ -z "$VERSION" ]; then
+  METADATA_VERSION=$(curl -fsSL --retry 2 --connect-timeout 10 \
+    "$RELEASE_METADATA_BASE/latest/version" 2>/dev/null | tr -d '\r\n' || true)
+  LATEST_RELEASE_URL=$(curl -fsSIL --retry 2 --connect-timeout 10 \
+    -o /dev/null -w '%{url_effective}' "https://github.com/$REPO/releases/latest" 2>/dev/null || true)
+  case "$LATEST_RELEASE_URL" in
+    */releases/tag/*) GITHUB_VERSION="${LATEST_RELEASE_URL##*/}" ;;
+    *) GITHUB_VERSION="" ;;
+  esac
+  if valid_release_tag "$GITHUB_VERSION"; then
+    VERSION="$GITHUB_VERSION"
+  elif valid_release_tag "$METADATA_VERSION"; then
+    VERSION="$METADATA_VERSION"
+    info "GitHub release lookup unavailable; using cached jcode.sh metadata ($VERSION)."
+  fi
+fi
+valid_release_tag "$VERSION" || err "Failed to determine latest version"
 INSTALL_VERSION="${VERSION#v}"
 
-URL_TGZ="https://github.com/$REPO/releases/download/$VERSION/$ARTIFACT.tar.gz"
-URL_BIN="https://github.com/$REPO/releases/download/$VERSION/$ARTIFACT"
+GITHUB_RELEASE_BASE="https://github.com/$REPO/releases/download/$VERSION"
 
 if [ "$IS_WINDOWS" = true ]; then
   EXE=".exe"
@@ -177,10 +207,51 @@ tmpdir=$(mktemp -d)
 
 INSTALL_STAGE="artifact_download"
 download_mode=""
-if curl -fsSL "$URL_TGZ" -o "$tmpdir/jcode.download" 2>/dev/null; then
-  download_mode="tar"
-elif curl -fsSL "$URL_BIN" -o "$tmpdir/jcode.download" 2>/dev/null; then
-  download_mode="bin"
+downloaded_asset=""
+DOWNLOAD_BASES=$(curl -fsSL --retry 2 --connect-timeout 10 \
+  "$RELEASE_METADATA_BASE/$VERSION/download-bases" 2>/dev/null || true)
+DOWNLOAD_BASES=$(printf '%s\n%s\n' "$DOWNLOAD_BASES" "$GITHUB_RELEASE_BASE" |
+  awk '/^https:\/\/[^[:space:]]+$/ && !seen[$0]++')
+
+for candidate in "$ARTIFACT.tar.gz" "$ARTIFACT$EXE"; do
+  while IFS= read -r base; do
+    [ -n "$base" ] || continue
+    if curl -fsSL --retry 2 --connect-timeout 10 \
+      "${base%/}/$candidate" -o "$tmpdir/jcode.download" 2>/dev/null; then
+      downloaded_asset="$candidate"
+      case "$candidate" in
+        *.tar.gz) download_mode="tar" ;;
+        *) download_mode="bin" ;;
+      esac
+      break 2
+    fi
+  done <<EOF
+$DOWNLOAD_BASES
+EOF
+done
+
+if [ -n "$download_mode" ]; then
+  INSTALL_STAGE="artifact_verification"
+  EXPECTED_SHA256=""
+  for checksum_url in \
+    "$RELEASE_METADATA_BASE/$VERSION/SHA256SUMS" \
+    "$GITHUB_RELEASE_BASE/SHA256SUMS"; do
+    CHECKSUMS=$(curl -fsSL --retry 2 --connect-timeout 10 \
+      "$checksum_url" 2>/dev/null || true)
+    EXPECTED_SHA256=$(printf '%s\n' "$CHECKSUMS" |
+      awk -v asset="$downloaded_asset" '$2 == asset || $2 == "*" asset { print tolower($1); exit }')
+    if printf '%s' "$EXPECTED_SHA256" | grep -Eq '^[0-9a-f]{64}$'; then
+      break
+    fi
+    EXPECTED_SHA256=""
+  done
+  printf '%s' "$EXPECTED_SHA256" | grep -Eq '^[0-9a-f]{64}$' \
+    || err "Could not find a trusted SHA-256 checksum for $downloaded_asset in $VERSION"
+  ACTUAL_SHA256=$(sha256_file "$tmpdir/jcode.download") \
+    || err "sha256sum, shasum, or openssl is required to verify the download"
+  [ "$ACTUAL_SHA256" = "$EXPECTED_SHA256" ] \
+    || err "SHA-256 verification failed for $downloaded_asset"
+  info "Verified SHA-256: $downloaded_asset"
 fi
 
 INSTALL_STAGE="binary_install"
