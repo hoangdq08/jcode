@@ -1742,3 +1742,80 @@ fn remote_clear_resets_provider_reported_context_usage() {
 
     assert_clear_usage_reset(&app);
 }
+
+/// Seed the app's inline-image set the way a resumed/populated session would:
+/// images live in `remote_side_pane_images`, which `side_pane_images()` returns
+/// (directly for a remote client) and which the inline-image renderer stages +
+/// transmits every frame.
+fn seed_inline_images(app: &mut App) {
+    let images = vec![
+        crate::session::RenderedImage {
+            media_type: "image/png".to_string(),
+            data: "aGVsbG8=".to_string(),
+            label: Some("old-1.png".to_string()),
+            source: crate::session::RenderedImageSource::UserInput,
+            anchor: None,
+        },
+        crate::session::RenderedImage {
+            media_type: "image/png".to_string(),
+            data: "d29ybGQ=".to_string(),
+            label: Some("old-2.png".to_string()),
+            source: crate::session::RenderedImageSource::UserInput,
+            anchor: None,
+        },
+    ];
+    assert!(
+        app.append_live_inline_images(images),
+        "seed should register inline images"
+    );
+    assert_eq!(
+        app.side_pane_images().len(),
+        2,
+        "images must be visible before clear"
+    );
+}
+
+/// Regression: `/clear` must drop the transcript's inline images. Before the
+/// fix, `reset_current_session` cleared `pending_images` (the compose-time
+/// queue) but left `remote_side_pane_images` intact, so `side_pane_images()`
+/// kept returning the old session's screenshots and the inline-image renderer
+/// re-transmitted them every frame — the user saw images that `/clear` could
+/// not remove.
+#[test]
+fn local_clear_drops_inline_images() {
+    let mut app = create_test_app();
+    seed_inline_images(&mut app);
+
+    assert!(super::commands::handle_session_command(&mut app, "/clear"));
+
+    assert!(
+        app.side_pane_images().is_empty(),
+        "/clear must drop inline images, found {}",
+        app.side_pane_images().len()
+    );
+}
+
+/// Same regression on the remote client path (the one the user actually hit:
+/// a shared-server client where `side_pane_images()` returns
+/// `remote_side_pane_images` verbatim).
+#[test]
+fn remote_clear_drops_inline_images() {
+    let mut app = create_test_app();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let _guard = rt.enter();
+    let mut remote = crate::tui::backend::RemoteConnection::dummy();
+    remote.mark_history_loaded();
+    app.is_remote = true;
+    seed_inline_images(&mut app);
+    app.input = "/clear".to_string();
+    app.cursor_pos = app.input.len();
+
+    rt.block_on(app.handle_remote_key(KeyCode::Enter, KeyModifiers::empty(), &mut remote))
+        .expect("remote /clear should succeed");
+
+    assert!(
+        app.side_pane_images().is_empty(),
+        "remote /clear must drop inline images, found {}",
+        app.side_pane_images().len()
+    );
+}

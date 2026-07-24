@@ -290,6 +290,15 @@ pub(super) fn reset_current_session(app: &mut App) {
     app.queued_messages.clear();
     app.pasted_contents.clear();
     app.pending_images.clear();
+    // The transcript's inline images (screenshots, `read` of an image, generated
+    // images) live in `remote_side_pane_images`, which `side_pane_images()`
+    // returns and the inline-image renderer re-stages + re-transmits every frame.
+    // `pending_images` above is only the compose-time queue, so without this the
+    // old session's images survived `/clear` and kept rendering (and could not be
+    // dismissed). Drop them and free the decoded/transmitted image caches too.
+    app.remote_side_pane_images.clear();
+    app.invalidate_side_pane_images_signature();
+    crate::tui::mermaid::clear_image_state();
     app.active_skill = None;
     app.improve_mode = None;
     let mut session = Session::create(None, None);

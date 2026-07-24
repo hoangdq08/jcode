@@ -1637,6 +1637,18 @@ async fn handle_remote_key_internal(
                     // (same rationale as reset_current_session in
                     // commands_review.rs).
                     crate::tui::mermaid::clear_active_diagrams();
+                    // Inline images live in `remote_side_pane_images`, which
+                    // `side_pane_images()` returns verbatim for a remote client
+                    // and the inline-image renderer re-stages + re-transmits every
+                    // frame. The server's clear spins up a fresh session but only
+                    // sends `SessionId` (no `Connected`), so the session-changed
+                    // reset that normally drops these never fires here. Clear them
+                    // and free the image caches so `/clear` actually removes the
+                    // old session's images (mirrors reset_current_session in
+                    // commands_review.rs).
+                    app.remote_side_pane_images.clear();
+                    app.invalidate_side_pane_images_signature();
+                    crate::tui::mermaid::clear_image_state();
                     app.is_processing = false;
                     app.status = ProcessingStatus::Idle;
                     app.set_status_notice("Session cleared");
