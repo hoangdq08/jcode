@@ -826,3 +826,80 @@ fn grok_build_subscription_request_spoofs_grok_cli_and_uses_oidc_bearer() {
     assert_eq!(body["messages"][0]["role"], "system");
     assert!(body.get("reasoning_effort").is_none());
 }
+
+fn named_profile_with_api(
+    base_url: String,
+    api: Option<&str>,
+) -> jcode_base::config::NamedProviderConfig {
+    jcode_base::config::NamedProviderConfig {
+        base_url,
+        api: api.map(ToString::to_string),
+        api_key: Some("profile-test-key".into()),
+        default_model: Some("any-model".into()),
+        headers: std::collections::BTreeMap::from([
+            ("User-Agent".into(), "codex_cli_rs/0.80.0".into()),
+            ("originator".into(), "codex_cli_rs".into()),
+        ]),
+        extra_body: Some(serde_json::json!({ "store": false })),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn named_profile_api_responses_flag_is_case_insensitive_and_opt_in() {
+    let _lock = ENV_LOCK.lock();
+    let _namespace = EnvVarGuard::remove("JCODE_OPENROUTER_CACHE_NAMESPACE");
+    for (api, expected) in [
+        (Some("responses"), true),
+        (Some(" Responses "), true),
+        (Some("chat"), false),
+        (Some(""), false),
+        (None, false),
+    ] {
+        let profile = named_profile_with_api("http://localhost:1/v1".into(), api);
+        let provider = OpenRouterProvider::new_named_openai_compatible("api-flag", &profile)
+            .expect("profile should initialize");
+        assert_eq!(provider.profile_api_responses, expected, "api={api:?}");
+        // fork() must keep the routing decision.
+        let forked = provider.fork();
+        drop(forked);
+    }
+    // A model outside every allowlist still routes to /responses only via the flag.
+    assert!(!crate::opencode_go_responses::model_uses_responses_api(
+        "http://localhost:1/v1",
+        Some("api-flag"),
+        "gpt-6-astra"
+    ));
+}
+
+#[tokio::test]
+async fn named_profile_api_responses_posts_to_responses_with_headers_and_store_false() {
+    let _lock = ENV_LOCK.lock();
+    let _namespace = EnvVarGuard::remove("JCODE_OPENROUTER_CACHE_NAMESPACE");
+    for (api, route) in [
+        (Some("responses"), "POST /v1/responses "),
+        (None, "POST /v1/chat/completions "),
+    ] {
+        let (base_url, captured) = spawn_single_response_chat_server();
+        let profile = named_profile_with_api(base_url, api);
+        let provider = OpenRouterProvider::new_named_openai_compatible("resp-wire", &profile)
+            .expect("profile should initialize");
+        let mut stream = provider
+            .complete(&[Message::user("hello")], &[], "test", None)
+            .await
+            .unwrap();
+        while let Some(event) = stream.next().await {
+            let _ = event;
+        }
+        let raw = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(raw.starts_with(route), "{raw}");
+        let lower = raw.to_ascii_lowercase();
+        assert!(lower.contains("user-agent: codex_cli_rs/0.80.0"), "{raw}");
+        assert!(lower.contains("originator: codex_cli_rs"), "{raw}");
+        let body: serde_json::Value =
+            serde_json::from_str(raw.split("\r\n\r\n").nth(1).unwrap()).unwrap();
+        assert_eq!(body["store"], false, "{body}");
+        assert_eq!(body.get("input").is_some(), api.is_some(), "{body}");
+        assert_eq!(body.get("messages").is_some(), api.is_none(), "{body}");
+    }
+}

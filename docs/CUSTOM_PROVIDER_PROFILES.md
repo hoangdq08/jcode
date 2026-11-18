@@ -34,6 +34,11 @@ The provider-level `supports_reasoning_effort = true` currently selects the
 DeepSeek-style effort ladder. For OpenAI-style models that need values such as
 `xhigh`, use the per-model `reasoning = true` declaration shown above.
 
+Set `api = "responses"` on a profile (case-insensitive) to send every model of
+that profile to `{base_url}/responses` instead of `/chat/completions`. Profile
+`headers` still apply. Add `extra_body = { store = false }` if your gateway
+requires it. Any other value, or no `api` field, keeps Chat Completions.
+
 Start a session:
 
 ```sh
