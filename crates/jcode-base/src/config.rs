@@ -1055,6 +1055,10 @@ impl Default for CompanionConfig {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct JarvisConfig {
+    /// Expand Jarvis requests into readable transcript, status, context and instruction sections.
+    pub show_raw_requests: bool,
+    /// Show the original user payload instead of the clean or expanded presentation.
+    pub show_exact_request_payload: bool,
     pub speech: JarvisSpeechConfig,
     pub listening: JarvisListeningConfig,
 }
@@ -1080,7 +1084,7 @@ impl Default for JarvisListeningConfig {
         Self {
             max_audio_seconds_per_hour: 600,
             max_classifications_per_hour: 120,
-            max_agent_turns_per_hour: 20,
+            max_agent_turns_per_hour: 0,
             action_probability: 0.97,
             trigger_sound: "/usr/share/sounds/freedesktop/stereo/message-new-instant.oga".into(),
             warm_nari: false,

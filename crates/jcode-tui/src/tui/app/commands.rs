@@ -107,11 +107,23 @@ fn is_incomplete_todo_poke(message: &str) -> bool {
 /// after a server busy rejection) while the model finishes every todo.
 /// Sending it afterwards nags about finished work, so drop it at dispatch.
 pub(super) fn drop_stale_incomplete_todo_pokes(app: &App, messages: &mut Vec<String>) {
-    if messages.iter().any(|m| is_incomplete_todo_poke(m)) && incomplete_poke_todos(app).is_empty()
-    {
-        crate::logging::info("Dropping stale incomplete-todo poke: no open todos remain");
-        messages.retain(|m| !is_incomplete_todo_poke(m));
+    if !messages.iter().any(|m| is_incomplete_todo_poke(m)) {
+        return;
     }
+    let actionable: Vec<_> = incomplete_poke_todos(app)
+        .into_iter()
+        .filter(|todo| !app.todo_is_paused_for_auto_followup(todo))
+        .collect();
+    messages.retain_mut(|message| {
+        if !is_incomplete_todo_poke(message) {
+            return true;
+        }
+        if actionable.is_empty() {
+            return false;
+        }
+        *message = build_poke_message(&actionable);
+        true
+    });
 }
 
 pub(super) fn queued_messages_are_only_pokes(messages: &[String]) -> bool {
@@ -2757,6 +2769,11 @@ pub(super) fn active_working_dir(app: &App) -> Option<std::path::PathBuf> {
 }
 
 pub(super) fn handle_dictation_command(app: &mut App, trimmed: &str) -> bool {
+    if let Some(rest) = slash_command_rest(trimmed, "/voice history") {
+        let notice = app.jarvis_listener.queue_history(rest);
+        app.set_status_notice(notice);
+        return true;
+    }
     if trimmed == "/voice" {
         app.toggle_voice_input();
         return true;

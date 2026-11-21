@@ -1706,7 +1706,7 @@ mod searchable_text;
 use searchable_text::searchable_message_text;
 
 fn is_system_like_message(msg: &StoredMessage) -> bool {
-    msg.display_role.is_some()
+    msg.has_context_display_role()
         || msg
             .content
             .iter()
@@ -1735,6 +1735,7 @@ fn is_tool_only_message(msg: &StoredMessage) -> bool {
 fn role_label(msg: &StoredMessage) -> &'static str {
     if let Some(display_role) = msg.display_role {
         return match display_role {
+            crate::session::StoredDisplayRole::JarvisUser => "user",
             crate::session::StoredDisplayRole::System => "system",
             crate::session::StoredDisplayRole::BackgroundTask => "background",
             crate::session::StoredDisplayRole::FileActivity => "file_activity",
